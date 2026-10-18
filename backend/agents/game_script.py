@@ -57,6 +57,36 @@ AGENT_NAME = "game_script"
 PROMPT_VERSION = "6"
 
 GAME_SCRIPT_MAX_SEARCHES = 3
+
+#: What one card holds against the day's token ceiling BEFORE its call
+#: (#384, Joe's (A) to the #376 lever, 2026-10-18), by `sport_key`. Without
+#: it a tap admitted at 4.9M of 5M overshot by its whole cost and refused
+#: every later tap until the reset. The figures are the largest measured on
+#: `agent-spend`, not a mean: NFL 528K-640K (n = 4, 2026-10-18, PROMPT_VERSION
+#: 6); college football 121K-227K (n = 13, #370, before the #374 trim);
+#: baseball 357K (n = 1, #370). A sport with no card measured holds the
+#: largest of these, which refuses early rather than overshoots. Re-derive
+#: from `agent-spend` when the prompt or the listing moves. Verdicts in flight
+#: are not counted here; they reserve against each other in their own route.
+GAME_SCRIPT_TOKEN_RESERVATION = {"nfl": 640_000, "ncaaf": 230_000, "mlb": 360_000}
+
+
+def card_token_reservation(sport_key: str, tokens_daily_budget: int = 0) -> int:
+    """The tokens one card on `sport_key` holds before its call.
+
+    **Never the whole ceiling.** On a copy run at the 500K default an NFL
+    hold of 640K would refuse every card on every day -- a lockout, not a
+    brake (the 2026-10-10 lesson). Capped one token under the ceiling, a card
+    is always admitted on an empty day and refused once anything is recorded,
+    which is the truth on that copy: it cannot fit without overshooting.
+    """
+    hold = GAME_SCRIPT_TOKEN_RESERVATION.get(
+        sport_key, max(GAME_SCRIPT_TOKEN_RESERVATION.values())
+    )
+    if tokens_daily_budget > 0:
+        hold = min(hold, tokens_daily_budget - 1)
+    return hold
+
 GAME_SCRIPT_SEARCH_TOOL = {**WEB_SEARCH_TOOL, "max_uses": GAME_SCRIPT_MAX_SEARCHES}
 # The card call's output cap. Was 3000 until #338: on 2026-10-09 four cards
 # stopped at `max_tokens` and five failed `json_invalid` (a reply cut off at the
@@ -722,7 +752,9 @@ async def build_card(
         )
 
     reason = budget.refusal_reason(
-        1, now_ms, searches_worst_case=GAME_SCRIPT_MAX_SEARCHES
+        1, now_ms, searches_worst_case=GAME_SCRIPT_MAX_SEARCHES,
+        reserved_tokens=card_token_reservation(sport_key, budget.tokens_daily_budget),
+        reserved_for="this card's estimated cost",
     )
     if reason is not None:
         logger.warning("the game-script scout is refused: %s", reason)

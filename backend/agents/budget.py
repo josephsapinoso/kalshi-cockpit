@@ -259,6 +259,7 @@ class AgentBudget:
         *,
         searches_worst_case: int = 0,
         reserved_tokens: int = 0,
+        reserved_for: str = "calls in flight",
     ) -> Optional[str]:
         """Which ceiling refuses part of a `requested`-call fan-out, or `None`.
 
@@ -283,7 +284,10 @@ class AgentBudget:
         at 334,711 recorded and the day closed at 1,120,442 against 500,000.
         The caller passes an estimate for its own calls still in flight, and
         the token brake reads `recorded + reserved`. Default 0, so every
-        caller that does not fan out is unchanged.
+        caller that does not fan out is unchanged. A game-script card tap
+        (#384) passes its OWN estimated cost here, with `reserved_for` naming
+        it, so a card that would not fit is refused before its call rather
+        than admitted to overshoot by its whole cost.
 
         **The reason is returned as well as logged.** It is written onto the
         rows that went unreviewed, where the operator actually looks -- a phone
@@ -308,7 +312,7 @@ class AgentBudget:
                 f"tokens already recorded today"
             )
             if reserved_tokens:
-                reason += f", plus {reserved_tokens} reserved for calls in flight"
+                reason += f", plus {reserved_tokens} reserved for {reserved_for}"
             logger.warning("refusing a %d-call batch: %s", requested, reason)
             return reason
         if (

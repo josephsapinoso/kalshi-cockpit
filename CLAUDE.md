@@ -235,9 +235,12 @@ each (median 873K)**, college-football cards 121K–227K (n = 13) and the
 one baseball tap 357K, because the NFL listing the card reads is 921 legs
 (233K characters of prompt against 28K–78K on the other sports) and is
 re-presented on every internal step of the one call. Five NFL cards took
-3.62M of Sunday's 4.48M; nothing was refused. A card tap holds **no**
-tokens while it runs (`game_script.py:600-615`), so the last card admitted
-can overshoot the ceiling by its whole cost; the lever is Joe's (#372). What bounds
+3.62M of Sunday's 4.48M; nothing was refused. On the #374-trimmed prompt
+(#376, 2026-10-18) four NFL taps cost **528K–640K (median ~539K, n = 4)**,
+two of them skips. Since #384 (Joe's (A), 2026-10-18) a card tap **holds its
+estimated cost before the call** (`GAME_SCRIPT_TOKEN_RESERVATION`, NFL 640K,
+never more than the ceiling minus one) and is refused up front when it would
+not fit, instead of overshooting by its whole cost. What bounds
 all of it is the shared `AgentBudget`'s daily ceilings (`AGENT_MAX_*`: 100
 searches since #157, 100 calls since #212 and **5M tokens since the evening
 of 2026-10-10** — each moved alone, on Joe's word; the 9M of #219 held ~15
@@ -457,16 +460,14 @@ on 12 rows of one stratum by the registered census, 2026-09-15:
 ADR 0145 and is not edited; the hedge price being a live ask is a fifth,
 unsigned term it does not list.) Net sign is indeterminate; E2 alone was
 observed at 22 tenths a contract on one row of 12, so "a few tenths" no
-longer bounds it. **`/hedge` has produced zero locks in its life** —
-`notifications` has never carried a `hedge_lock` kind, only `position_state`
-rows, checked most recently 2026-09-15. This is the same decaying-count shape
-the transacted-path paragraph names (ADR 0162): the open-position breakdown
-that used to sit here (a `derisk`/dead split) was already stale relative to
-this file's own later transacted-path reading, so it is not restated —
-re-check `notifications` for `hedge_lock` and read open positions from
-`/api/hedge` before trusting the zero if it has been more than a session or
-two. So E3 did
-no realised harm and the fix is validated on synthetic rows only. **The flattering error is calling the figure cautious,
+longer bounds it. **`/hedge` HAS pushed locks** — this line said "zero locks
+in its life" from a 2026-09-15 check until 2026-10-18, when `notifications`
+held `hedge_lock` rows from 2026-09-16 onward: the zero went stale the day
+after it was written, the decaying-count shape ADR 0162 names, so no count is
+restated here. Re-read `notifications` by kind (`hedge_lock`, `hedge_derisk`,
+`position_state`) and open positions from `/api/hedge` rather than trust a
+number. Every lock so far postdates ADR 0145 (2026-09-14), so E3 did no
+realised harm on a pushed lock. **The flattering error is calling the figure cautious,
 a floor, or "at least"** — the words to refuse are ceiling, floor,
 conservative, at least, can only be smaller/larger. The stake basis:
 **`manual_orders` has no `fill_price_tenths`

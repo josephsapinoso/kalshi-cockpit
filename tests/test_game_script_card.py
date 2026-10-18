@@ -183,6 +183,32 @@ def _conn_budget(tmp_path, *, daily=24):
     )
 
 
+def _token_budget(tmp_path, *, recorded, ceiling=5_000_000):
+    """A budget with the token ceiling on and `recorded` tokens already
+    settled today, as one earlier call."""
+    conn = db.init_db(tmp_path / "gs.db")
+    budget = AgentBudget(
+        conn, per_pass_budget=8, daily_budget=100,
+        searches_daily_budget=0, tokens_daily_budget=ceiling,
+    )
+    call_id = budget.reserve(called_ms=NOW, agent="scout", model="m")
+    conn.execute(
+        "UPDATE agent_calls SET input_tokens = ?, output_tokens = 0 WHERE id = ?",
+        (recorded, call_id),
+    )
+    conn.commit()
+    return conn, budget
+
+
+async def _build(conn, client, budget, *, sport_key):
+    return await build_card(
+        conn, client, CONFIG, budget,
+        game_event_ticker=GAME, sport_key=sport_key, kickoff_ms=KICKOFF,
+        game_title="Atlanta at Pittsburgh", kickoff_iso="2026-09-13T17:00Z",
+        listing=_listing(), now_ms=NOW,
+    )
+
+
 async def _run(tmp_path, parsed, *, daily=24):
     conn, budget = _conn_budget(tmp_path, daily=daily)
     client = StubClient(parsed)
@@ -378,6 +404,73 @@ class TestEveryOutcomeIsARow:
         assert conn.execute(
             "SELECT COUNT(*) AS c FROM agent_calls WHERE agent = 'game_script'"
         ).fetchone()["c"] == 0
+
+    async def test_a_tap_that_would_not_fit_is_refused_before_the_call(self, tmp_path):
+        """#384, Joe's (A) to #376: a card holds its estimated cost up front.
+
+        At 4.5M recorded against 5M, an NFL card (up to 640K on 2026-10-18)
+        used to be admitted and overshoot the ceiling by its whole cost,
+        locking every later tap out until the reset. Now it is refused first
+        and spends nothing."""
+        conn, budget = _token_budget(tmp_path, recorded=4_500_000)
+        client = StubClient(_card(ATL, TOT40))
+
+        result = await _build(conn, client, budget, sport_key="nfl")
+
+        assert result.status == "refused_budget"
+        assert client.messages.calls == []
+        assert "reserved for this card" in result.reason
+
+    async def test_a_tap_that_fits_with_its_estimate_is_admitted(self, tmp_path):
+        conn, budget = _token_budget(tmp_path, recorded=4_300_000)
+        client = StubClient(_card(ATL, TOT40))
+
+        result = await _build(conn, client, budget, sport_key="nfl")
+
+        assert result.status == "built"
+        assert len(client.messages.calls) == 1
+
+    async def test_the_second_tap_is_refused_once_the_first_is_recorded(self, tmp_path):
+        """Card builds are serialised (`_CARD_BUILD_LOCK`), so a second tap
+        reads the first one's settled tokens; it must not overshoot either."""
+        conn, budget = _token_budget(tmp_path, recorded=3_800_000)
+        first = await _build(conn, StubClient(_card(ATL, TOT40)), budget, sport_key="nfl")
+        assert first.status == "built"
+        conn.execute(
+            "UPDATE agent_calls SET input_tokens = 640000 WHERE id = ?",
+            (first.agent_call_id,),
+        )
+        conn.commit()
+        second_client = StubClient(_card(ATL, TOT40))
+
+        second = await _build(conn, second_client, budget, sport_key="nfl")
+
+        assert second.status == "refused_budget"
+        assert second_client.messages.calls == []
+
+    def test_an_unmeasured_sport_holds_the_largest_measured_cost(self):
+        """NBA, NHL and the rest have no card measured on this prompt; the
+        hold errs toward refusing, which is the direction Joe chose."""
+        assert game_script.card_token_reservation("nba") == max(
+            game_script.GAME_SCRIPT_TOKEN_RESERVATION.values()
+        )
+        assert game_script.card_token_reservation("nfl") == 640_000
+
+    async def test_a_ceiling_below_one_card_still_admits_a_card_on_an_empty_day(
+        self, tmp_path
+    ):
+        """The 500K default is under an NFL card's hold; a hold equal to the
+        ceiling would refuse every card on every day on such a copy."""
+        conn = db.init_db(tmp_path / "gs.db")
+        budget = AgentBudget(
+            conn, per_pass_budget=8, daily_budget=100,
+            searches_daily_budget=0, tokens_daily_budget=500_000,
+        )
+        client = StubClient(_card(ATL, TOT40))
+
+        result = await _build(conn, client, budget, sport_key="nfl")
+
+        assert result.status == "built"
 
     async def test_one_card_is_one_call_with_at_most_three_searches(self, tmp_path):
         _conn, client, _r = await _run(tmp_path, _card(ATL, TOT40))
