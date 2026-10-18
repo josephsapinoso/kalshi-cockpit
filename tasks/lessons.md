@@ -16,6 +16,14 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-18 - An alarm compares at the instrument's own precision; rounding an input onto a coarser grid fires it on a model that held
+
+From the hundred-and-first session (live "Fee model mismatch — stop the line" on a combo fill at $0.0071).
+
+- **The input was rounded, not the model wrong.** `parse_fill` put a $0.0071 fill onto the tenths grid as $0.0070, and a one-sided alarm with a 1e-9 tolerance compared the venue's charge against a ceiling computed at the wrong price. Where a market ticks finer than the repo's money unit (combinations below 1c and above 99c), the comparison that decides an alarm reads the venue's exact value; the stored unit can stay coarse.
+- **Print an alarm at the precision of what it measures.** A sub-cent fee printed `.2f` in the record and `.4f` on the push read "0.01 vs 0.01" and "$0.0077 vs $0.0077": the alarm said stop the line and showed no gap. Before diagnosing, get the raw venue row; it settled this in one read.
+- **Check a lead's premise against source before chasing it.** The first lead (the fill fell back to the flat coefficient) rested on the ticker's classification, and one grep of the prefix refuted it.
+
 ## 2026-10-15 - A test that proves "it waited" by timing a sleep flakes at the clock's granularity; pin the ordering with a flag
 
 From the ninety-ninth session (`test_signal_cache.py`, 2 of 5 runs red with nothing changed).

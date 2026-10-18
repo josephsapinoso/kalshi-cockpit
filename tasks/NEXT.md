@@ -139,6 +139,25 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-18 (hundred-and-first session) — the 16:47Z fee alarm was a rounding artifact, fixed; card taps hold their cost (#384); #376, #380, #398 answered; live and demo on `976beacf`
+
+- **Partner found a live "Fee model mismatch — stop the line" at 16:47Z** on combo `KXMVECROSSCATEGORY-S2026W5VSYTSCWZIE2KMV-IF4HAK66J`. Raw venue row (one read-only `GET /portfolio/fills`): 15.52 @ $0.0071, charged $0.007708. `parse_fill` rounded the price to 7 tenths, so the 0.071 ceiling read $0.0077; at $0.0071 it is $0.0078 (implied k 0.07045). **The ceiling held; the alarm was false.** Partner's "flat-coefficient fallback" lead was refuted by source (`KXMVE` prefix). Fix `ad1fa4e6`: `ParsedFill.price_dollars`, `combo_taker_fee_at_dollars`, stored detail and Discord push to 6 dp; `kalshi-platform` reviewed. Its open notes, not ticketed (display-only, millionths): discovery's HALF_UP ask on edge-band combos (`discovery.py:721`); `grid.py:200`'s "centi-cent everywhere" combo claim matches no capture.
+- **#376 read and closed** (n = 4 NFL, 528K–640K, median ~539K, two skips; day 2.60M of 5M, nothing refused). **Joe's answers (AskUserQuestion):** #376 lever **(A)**, #380 **(B)** (no build), #398 **(B)**.
+- **#384 built** `aa19896b`, ADR 0190 Amendment 5: a card tap reserves `GAME_SCRIPT_TOKEN_RESERVATION` (NFL 640K) before the call, capped at ceiling − 1. **#398 built** `976beacf`: section h2s step down to xl/2xl, pinned.
+- **First real `hedge_derisk`** fired 17:46Z (row 24129, position 186, PIT −1.5 leg at 25%), delivered; `/api/hedge` ladder arithmetic checks by hand. The embed's figures are not stored, so the push itself can't be re-compared. CLAUDE.md's "/hedge has produced zero locks" (stale since 2026-09-16) replaced with a count-free pointer.
+- **Verification:** 1,466 related tests locally, every new guard mutated red; CI green on `976beacf` (39154473640); live (39155000655) then demo (39155100998) deployed; both `/api/health` `build.git_sha` = `976beacf`.
+
+### Still open
+
+1. #355 — same-game vs cross-sport half only; still behind #331.
+2. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
+3. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+4. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
+5. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+6. #337 — 2027-01-15: look B for P1 only.
+7. #331 — 2026-11-01: the leg census by kind.
+8. #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-18 (hundredth session) — a hedge push for a multi-leg ticket with a leg going bad (#399, ADR 0078 Amendment 3); live and demo on `a573c013`
 
 - **Joe's errand, named himself** (so `partner` skipped): "is there a discord alert we have for sending hedges… if there is a 6-leg parlay, but 1 is not looking good… a hedge alert… with the recommendation of what to bet". Three hedge pushes existed (`hedge_lock`, `position_state`, `last_leg_watch`); his case was the one ADR 0078 D2 kept screen-only on his 2026-08-26 answer.
@@ -485,6 +504,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-18 (hundred-and-first session) — live fee alarm diagnosed as a price-rounding artifact and fixed; #384 card-tap token hold (ADR 0190 Amd 5); #376/#380/#398 answered by Joe; live and demo on `976beacf`
 - 2026-10-18 (hundredth session) — Joe's errand: a `hedge_derisk` Discord push when the weakest leg of a multi-leg ticket is below 35% in play, naming the full and half hedge (#399, ADR 0078 Amendment 3); live and demo on `a573c013`
 - 2026-10-15 (ninety-ninth session) — nothing to build (partner); PR #395/#394 finished on screen and shipped, live and demo on `ef7cb3cf`; a signal-cache timing flake pinned by ordering; (B) recommended on #380; heading hierarchy to Joe (#398)
 - 2026-10-14 (ninety-eighth session) — Joe's bet history read whole: picks market-rate, ticket shape is the loss; nine glossary keys (#396), `by_shape` strip on Your bets (#397); ADR 0196; live and demo on `bc821475`
