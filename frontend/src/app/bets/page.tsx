@@ -146,7 +146,7 @@ export default async function BetsPage() {
         than printing 0.
       */}
       <section id="open" className="mb-10 scroll-mt-24">
-        <h2 className="display text-2xl sm:text-3xl">
+        <h2 className="display text-xl sm:text-2xl">
           Open{openCount === null ? "" : ` (${openCount})`}
           {openCount === null ? null : (
             <span className="ml-2 text-sm font-normal text-muted">

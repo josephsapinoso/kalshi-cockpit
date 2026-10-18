@@ -95,3 +95,24 @@ class TestEveryOwnedPageRendersThroughPageTitle:
                 missing_use.append(str(path.relative_to(FRONTEND_SRC)))
         assert missing_import == []
         assert missing_use == []
+
+
+class TestASectionHeadingIsSmallerThanThePageName:
+    """#398, Joe's (B), 2026-10-18: a section `<h2>` never wears the page
+    name's size, so a screen still shows which is the page and which is a
+    section. Mutation: put `text-2xl sm:text-3xl` back on Parlays'
+    "Game-script parlays" heading -> red."""
+
+    def test_no_h2_carries_the_page_title_size(self):
+        page_size = re.search(
+            r'page:\s*"display ([^"]+)"', PAGE_TITLE.read_text(encoding="utf-8")
+        ).group(1)
+        offenders = [
+            str(path.relative_to(FRONTEND_SRC))
+            for path in _tsx_files()
+            if re.search(
+                r"<h2\b[^>]*className=\"[^\"]*\b" + re.escape(page_size) + r"\b",
+                path.read_text(encoding="utf-8"),
+            )
+        ]
+        assert page_size and offenders == []

@@ -874,7 +874,7 @@ export function GameScriptParlays() {
 
   return (
     <section aria-label="Game-script parlays" className="mt-4">
-      <h2 className="display text-2xl sm:text-3xl">Game-script parlays</h2>
+      <h2 className="display text-xl sm:text-2xl">Game-script parlays</h2>
       <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-muted">
         One short story per game with two or three{" "}
         <Term k="same_game_parlay">same-game</Term> picks that fit it, in
