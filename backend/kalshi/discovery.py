@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, AsyncIterable, Iterable, Optional
 
-from ..core.prices import dollars_to_tenths, parse_quantity
+from ..core.prices import bid_dollars_to_tenths, dollars_to_tenths, parse_quantity
 from .grid import PriceGrid, read_price_grid
 from .props import MARKET_TYPE_PROP, is_prop_series, parse_subtitle
 
@@ -716,10 +716,12 @@ def build_market(
         result=read_market_result(market),
         # Field names verified against tests/fixtures/events_sports_nested.json
         # and tests/fixtures/market_single.json, not against memory. Prices
-        # arrive as dollar STRINGS ("0.4500"), so `dollars_to_tenths` parses
-        # them and returns None on anything it cannot read.
-        yes_bid_tenths=dollars_to_tenths(market.get("yes_bid_dollars")),
-        no_bid_tenths=dollars_to_tenths(market.get("no_bid_dollars")),
+        # arrive as dollar STRINGS ("0.4500"), so `bid_dollars_to_tenths`
+        # parses them and returns None on anything it cannot read. Bids round
+        # DOWN (#400): a combination's edge band ticks in hundredths of a
+        # cent, and HALF_UP derived an ask below anything offered.
+        yes_bid_tenths=bid_dollars_to_tenths(market.get("yes_bid_dollars")),
+        no_bid_tenths=bid_dollars_to_tenths(market.get("no_bid_dollars")),
         yes_ask_size=parse_quantity(market.get("yes_ask_size_fp")),
         no_ask_size=parse_quantity(market.get("yes_bid_size_fp")),
         price_grid=read_price_grid(market),

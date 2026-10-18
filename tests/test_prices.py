@@ -295,3 +295,24 @@ class TestAProbabilityIsNotAPrice:
             assert prices.format_probability(tenths / 1000).removesuffix(
                 "%"
             ) == prices.format_price(tenths).removesuffix("c")
+
+
+class TestABidRoundsDown:
+    """`bid_dollars_to_tenths` (#400): never above what is bid."""
+
+    def test_an_edge_band_bid_floors(self):
+        assert prices.bid_dollars_to_tenths("0.0076") == 7
+        assert prices.bid_dollars_to_tenths("0.9929") == 992
+        # A real bid under $0.001 floors to Kalshi's empty-side 0: the ask
+        # it fills is refused rather than shown below the truth (#400).
+        assert prices.bid_dollars_to_tenths("0.0004") == 0
+        assert prices.bid_dollars_to_tenths("0.0009") == 0
+
+    def test_it_agrees_with_dollars_to_tenths_on_the_grid(self):
+        for tenths in range(0, 1001):
+            dollars = f"{tenths / 1000:.4f}"
+            assert prices.bid_dollars_to_tenths(dollars) == prices.dollars_to_tenths(dollars)
+
+    def test_unreadable_is_none_never_zero(self):
+        for bad in (None, "", "garbage", "nan", "Infinity", "-0.50", "1e400"):
+            assert prices.bid_dollars_to_tenths(bad) is None, bad

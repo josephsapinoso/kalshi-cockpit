@@ -38,7 +38,7 @@ substitute. A price that silently became 0 is a free contract in the risk model.
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR, ROUND_HALF_UP
 from typing import Optional, Union
 
 # A contract settles at $1.00, so prices span 0..1000 tenths of a cent.
@@ -85,6 +85,35 @@ def dollars_to_tenths(value: Union[str, float, Decimal, None]) -> Optional[int]:
     except (InvalidOperation, ValueError, OverflowError):
         # A finite but absurd magnitude ("1e400" parses finite in some builds)
         # still cannot be quantized. Same contract: unreadable resolves to None.
+        return None
+
+
+def bid_dollars_to_tenths(value: Union[str, float, Decimal, None]) -> Optional[int]:
+    """A BID in dollars to tenths, rounded DOWN -- never above what is bid.
+
+    A combination ticks in hundredths of a cent below 1c and above 99c, and
+    `/markets` reports its bids at that precision. HALF_UP put a bid up to
+    half a tenth above anything resting, and so the ask derived from the
+    other side (`1 - bid`) up to half a tenth BELOW anything offered: the buy
+    screen showed a $0.0071 ask as 0.7c (#400). Rounded down, a bid never
+    flatters what you would receive and the derived ask never reads below
+    the venue's, while a limit sent at that ask still fills at the venue's
+    better price -- which refusing the bid, as the book path does
+    (`dollars_to_tenths_exact`), would have turned into "no ask" on every
+    edge-band combination. Exact on the tenths grid, so every single market
+    parses as it did. Unreadable is `None`, never `0`, as `dollars_to_tenths`.
+
+    **A real bid under $0.001 floors to 0, and 0 is also Kalshi's "nobody is
+    resting" value.** The derived ask is then 1000 and refused, which is right
+    for the order path ($0.9993 has no tenths limit that both fills and is
+    legal), but `LiveQuote.opposing_bid_tenths` will word it as an empty side
+    when someone is in fact resting. Conservative, and copy only.
+    """
+    if dollars_to_tenths(value) is None:
+        return None
+    try:
+        return int((Decimal(str(value)) * _TENTHS).to_integral_value(rounding=ROUND_FLOOR))
+    except (InvalidOperation, ValueError, OverflowError):
         return None
 
 

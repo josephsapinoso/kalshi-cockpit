@@ -23,6 +23,7 @@ from backend.kalshi.discovery import (
     NON_FIXTURE_SCOPES,
     OUT_OF_SCOPE_LEAGUES,
     PERIOD_SCOPES,
+    build_market,
     build_markets,
     classify_series,
     coverage_by_league,
@@ -30,6 +31,7 @@ from backend.kalshi.discovery import (
     event_commence_ms,
     parse_ms,
 )
+from backend.kalshi.quotes import LiveQuote
 from backend.kalshi.props import (
     MARKET_TYPE_PROP,
     PROP_SCOPES,
@@ -1879,3 +1881,49 @@ class TestTheCompetitionStringReachesTheOddsFeedKey:
             for e in payload["events"]
         }
         assert competitions == {"Pro Football"}, competitions
+
+
+class TestAnEdgeBandBidRoundsDownNeverUp:
+    """#400: a combination ticks in hundredths of a cent below 1c and above
+    99c, and `/markets` reports its bids at that precision. Rounded HALF_UP, a
+    bid could read above what anyone pays and the derived ask below what
+    anyone sells for: the buy screen showed a $0.0071 ask as 0.7c, with its
+    fee and break-even computed there.
+
+    A bid rounds DOWN to the tenth instead. The ask derived from it then never
+    reads below the venue's, and an order sent at that ask still fills at the
+    venue's better price -- refusing the bid would have shown "no ask" on
+    every edge-band combination and removed a path that works.
+
+    Mutation: put `dollars_to_tenths` (HALF_UP) back in `build_market` ->
+    `test_a_bid_just_under_a_tenth_boundary_is_not_rounded_up` goes red.
+    """
+
+    @staticmethod
+    def _combo(**prices):
+        market = dict(load_fixture("combo_priced_markets.json")["combos"][0])
+        market.update(prices)
+        return build_market(market, market_type="combo")
+
+    def test_a_bid_just_under_a_tenth_boundary_is_not_rounded_up(self):
+        built = self._combo(yes_bid_dollars="0.0076", no_bid_dollars="0.9926")
+
+        assert (built.yes_bid_tenths, built.no_bid_tenths) == (7, 992)
+
+    def test_the_derived_ask_never_reads_below_the_venue(self):
+        """No bid $0.9929 means a YES ask of $0.0071: shown as 0.8c, not 0.7c."""
+        built = self._combo(yes_bid_dollars="0.0000", no_bid_dollars="0.9929")
+
+        quote = LiveQuote(market=built, observed_ms=0)
+
+        assert quote.ask_tenths("yes") == 8
+
+    def test_a_bid_on_the_tenths_grid_is_unchanged(self):
+        built = self._combo(yes_bid_dollars="0.2280", no_bid_dollars="0.7650")
+
+        assert (built.yes_bid_tenths, built.no_bid_tenths) == (228, 765)
+
+    def test_an_unreadable_bid_is_none_never_zero(self):
+        built = self._combo(yes_bid_dollars="garbage", no_bid_dollars=None)
+
+        assert (built.yes_bid_tenths, built.no_bid_tenths) == (None, None)
