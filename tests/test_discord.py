@@ -133,6 +133,16 @@ class TestFailureAlerts:
         assert "stop the line" in body.lower()
         assert "Do not place further orders" in body
 
+    @respx.mock
+    async def test_a_fee_mismatch_shows_a_sub_tenth_gap(self, notifier):
+        """A combo charge lands on $0.000001, not $0.0001: on 2026-10-18 a
+        $0.000008 undercharge would have read "$0.0077 vs $0.0077"."""
+        route = respx.post(API).mock(return_value=httpx.Response(200, json={}))
+        async with notifier as n:
+            await n.fee_mismatch("MKT", predicted=0.0077, actual=0.007708)
+        body = route.calls.last.request.read().decode()
+        assert "$0.007700" in body and "$0.007708" in body
+
 
 class TestDegradesGracefully:
     """Alerting is optional infrastructure. It must never take down ingest."""

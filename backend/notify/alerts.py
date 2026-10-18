@@ -1756,7 +1756,7 @@ class Alerter:
         return await self._failure(
             FAILURE_FEE_MISMATCH,
             lambda: self.notifier.fee_mismatch(ticker, predicted, actual),
-            detail=f"{ticker} {predicted:.2f} vs {actual:.2f}",
+            detail=f"{ticker} {predicted:.6f} vs {actual:.6f}",  # a fee is sub-cent
             now_ms=now_ms,
         )
 

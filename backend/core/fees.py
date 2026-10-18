@@ -378,8 +378,9 @@ def combo_taker_fee(price_tenths: int, contracts: float) -> Optional[float]:
     Same form as `_model_a` -- `ceil(k * C * P * (1-P))` onto
     `FEE_GRID_DOLLARS` -- with `COMBO_TAKER_COEFFICIENT` in place of
     `TAKER_COEFFICIENT`. Rounding up onto a $0.0001 grid can only overstate
-    against the finer grid the combo charges were observed on (gcd $0.00001),
-    so the ceiling survives the grid mismatch too.
+    against the finer grid the combo charges were observed on (gcd $0.00001
+    on the 2026-08-18 rows; a $0.007708 charge on 2026-10-18 puts it at
+    $0.000001 or finer), so the ceiling survives the grid mismatch too.
 
     `None` on an unreadable or untradeable price, never `0.0` -- the caller
     must refuse rather than substitute, for the reason `calculate_fee`'s
@@ -389,15 +390,37 @@ def combo_taker_fee(price_tenths: int, contracts: float) -> Optional[float]:
     ADR 0073 permits taker IOC buys only, so a maker coefficient here would
     be a number with no observation and no caller.
     """
+    if not is_valid_price(price_tenths):
+        return None
+    return combo_taker_fee_at_dollars(_price_dollars(price_tenths), contracts)
+
+
+def combo_taker_fee_at_dollars(
+    price_dollars: Decimal, contracts: float
+) -> Optional[float]:
+    """`combo_taker_fee` at the venue's exact dollar price, not a tenth.
+
+    A combination ticks in hundredths of a cent below 1c and above 99c
+    (`price_level_structure: center_deci_edge_centi_cent`), so a combo fill
+    at $0.0071 is not on the tenths grid. Rounded to 7 tenths, the ceiling
+    came out $0.000008 under the venue's charge and the stop-the-line alarm
+    fired on 2026-10-18 while the 0.071 ceiling held at the real price. A
+    caller that has the venue's price -- the fill reconciliation -- prices
+    here; one that only has a price it is about to send, on the tenths grid,
+    goes through `combo_taker_fee`, which is the same arithmetic.
+
+    `None` outside (0, 1) and on an unreadable count, never `0.0` on a price.
+    """
     count = _exact_count(contracts)
     if count is None:
         return None
     if count <= 0:
         return 0.0
-    if not is_valid_price(price_tenths):
+    if not isinstance(price_dollars, Decimal) or not price_dollars.is_finite():
         return None
-    price = _price_dollars(price_tenths)
-    raw = COMBO_TAKER_COEFFICIENT * count * price * (Decimal(1) - price)
+    if not (Decimal(0) < price_dollars < Decimal(1)):
+        return None
+    raw = COMBO_TAKER_COEFFICIENT * count * price_dollars * (Decimal(1) - price_dollars)
     return float(raw.quantize(FEE_GRID_DOLLARS, rounding=ROUND_CEILING))
 
 

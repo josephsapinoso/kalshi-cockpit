@@ -865,14 +865,16 @@ class DiscordNotifier:
         )
 
     async def fee_mismatch(self, ticker: str, predicted: float, actual: float) -> bool:
-        """Four decimal places, not two.
+        """Six decimal places, not two (and since 2026-10-18 not four).
 
         Sports fees are charged to $0.0001 and both sides land on that
         grid, so `:.2f` renders a real $0.0142-vs-$0.0162 divergence as
         "predicted $0.01, charged $0.02" -- the direction and the size,
         which are the whole message, rounded out of existence. Corrected
         2026-09-09, when this alarm acquired its first caller (ADR 0120)
-        and the copy stopped being hypothetical.
+        and the copy stopped being hypothetical. A combination's charge
+        lands on $0.000001 (0.007708 on 2026-10-18), so four places showed
+        that day's $0.000008 undercharge as "$0.0077 vs $0.0077".
 
         The reconciliation is one-sided: it fires only when the venue
         charged MORE than predicted, so the copy says that rather than
@@ -880,8 +882,8 @@ class DiscordNotifier:
         """
         return await self.failure(
             "Fee model mismatch — stop the line",
-            f"`{ticker}`: predicted ${predicted:.4f}, Kalshi charged "
-            f"${actual:.4f}.\n\nKalshi charged MORE than predicted, so every EV figure is "
+            f"`{ticker}`: predicted ${predicted:.6f}, Kalshi charged "
+            f"${actual:.6f}.\n\nKalshi charged MORE than predicted, so every EV figure is "
             f"optimistic by an unknown amount. Do not place further orders until "
             f"`core/fees.py` is reconciled against real fills.",
         )

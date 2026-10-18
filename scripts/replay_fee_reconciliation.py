@@ -25,6 +25,13 @@ poller does. Opens the database read-only and writes nothing.
 - **Not the whole betting history.** `/portfolio/fills` retains roughly three
   months (`backend/store/schema.sql:1650`), so this is the mirror's window.
   The window is printed; read it before the counts.
+- **Not an edge-band combination fill.** `fills` stores `price_tenths`
+  only, and a combination below 1c or above 99c fills in hundredths of a cent
+  (2026-10-18: $0.0071 stored as 7 tenths). The poller prices those at the
+  venue's exact price; this replay cannot, so it rebuilds `ParsedFill` with
+  `price_dollars = None` and the rounded price can flag a fill the poller
+  correctly passed. A combo row flagged here at a price under 10 or over 990
+  tenths is that artifact until the venue's own price says otherwise.
 - **Not the workload the poller runs.** Production reconciles only *newly
   stored* rows and dedupes alerts per day, so a bulk replay is not that shape.
 

@@ -671,3 +671,26 @@ class TestTheComboHedge:
 
     def test_a_zero_count_is_free_and_not_a_refusal(self):
         assert fees.combo_taker_fee(450, 0) == 0.0
+
+    def test_at_dollars_agrees_with_tenths_on_every_tenth(self):
+        """One arithmetic, two entry points: on the tenths grid they agree."""
+        for price_tenths in range(1, 1000):
+            at_dollars = fees.combo_taker_fee_at_dollars(
+                Decimal(price_tenths) / Decimal(PRICE_MAX), 3.5
+            )
+            assert at_dollars == fees.combo_taker_fee(price_tenths, 3.5), price_tenths
+
+    def test_at_dollars_prices_a_centi_cent_fill_above_its_rounded_tenth(self):
+        """$0.0073 is between 7 and 8 tenths; rounding to 7 understates the
+        ceiling below a charge it actually covers (2026-10-18)."""
+        exact = fees.combo_taker_fee_at_dollars(Decimal("0.0073"), 20)
+        rounded = fees.combo_taker_fee(7, 20)
+
+        assert (exact, rounded) == (0.0103, 0.0099)
+
+    def test_at_dollars_refuses_a_settled_or_unreadable_price(self):
+        assert fees.combo_taker_fee_at_dollars(Decimal(0), 1) is None
+        assert fees.combo_taker_fee_at_dollars(Decimal(1), 1) is None
+        assert fees.combo_taker_fee_at_dollars(Decimal("NaN"), 1) is None
+        assert fees.combo_taker_fee_at_dollars(Decimal("-0.01"), 1) is None
+        assert fees.combo_taker_fee_at_dollars(Decimal("0.0073"), float("nan")) is None

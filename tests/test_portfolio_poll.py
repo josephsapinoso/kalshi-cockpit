@@ -23,6 +23,7 @@ or anything about estimate matching -- which is analysis, not ingest.
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -177,6 +178,9 @@ class TestParseFill:
             # fill and now kept -- the join key from a portal-placed manual
             # order to the fill that answered it.
             venue_order_id="a40b142b-b213-436e-913b-d2844765e70a",
+            # 2026-10-18: the venue's exact price for our side, which the fee
+            # reconciliation reads on a combination finer than a tenth.
+            price_dollars=Decimal("0.0100"),
         )
 
     def test_a_no_fill_reads_the_no_price(self):
@@ -1245,6 +1249,55 @@ class TestWhatCountsAsAFeeMismatch:
         assert check.predicted_dollars == 0.0162
         assert not check.is_mismatch
 
+    def test_a_combination_priced_finer_than_a_tenth_is_priced_at_the_venue_price(self):
+        """The 2026-10-18 false alarm, on a synthetic row of the same shape.
+
+        A combination ticks in hundredths of a cent below 1c and above 99c
+        (`center_deci_edge_centi_cent`), so a fill at $0.0073 is not on the
+        tenths grid. `parse_fill` rounds it to 7 tenths, and the ceiling at
+        $0.0070 is $0.0099 -- below a charge at k = 0.0704 on the real price
+        ($0.010203), so the stop-the-line alarm fired on a ceiling that held.
+        At the venue's own price the ceiling is $0.0103 and is silent.
+        """
+        combo = parse_fill(wnba_fill(
+            ticker=COMBO_TICKER, market_ticker=COMBO_TICKER,
+            count_fp="20.00",
+            yes_price_dollars="0.0073", no_price_dollars="0.9927",
+            fee_cost="0.010203",
+        ))
+
+        check = reconcile_fill(combo)
+
+        assert combo.price_tenths == 7, "the rounded price is still recorded"
+        assert check is not None
+        assert check.model == "combo_taker_ceiling_0071"
+        assert check.predicted_dollars == 0.0103
+        assert not check.is_mismatch
+
+    def test_a_combination_above_99c_is_priced_at_the_venue_price_too(self):
+        """The other edge of the centi-cent band, on the NO side's price."""
+        combo = parse_fill(wnba_fill(
+            ticker=COMBO_TICKER, market_ticker=COMBO_TICKER, side="no",
+            count_fp="20.00",
+            yes_price_dollars="0.0073", no_price_dollars="0.9927",
+            fee_cost="0.010203",
+        ))
+
+        check = reconcile_fill(combo)
+
+        assert check is not None
+        assert check.predicted_dollars == 0.0103
+        assert not check.is_mismatch
+
+    def test_a_single_market_fill_is_still_priced_on_the_tenths_grid(self):
+        """Only the combination branch reads the exact price; a single market
+        ticks in tenths, so `calculate_fee` sees what it always saw."""
+        check = reconcile_fill(parse_fill(wnba_fill()))
+
+        assert check is not None
+        assert check.model == "model_a_deci"
+        assert check.predicted_dollars == WNBA_PREDICTION
+
     def test_a_maker_combination_fill_is_refused_rather_than_guessed(self):
         """No maker combo fill has ever been observed and ADR 0073 permits
         taker IOC buys only, so there is no coefficient to predict with."""
@@ -1310,6 +1363,25 @@ class TestTheFeeAlarmAtIngest:
         _ticker, predicted, actual = notifier.fee_calls[0]
         assert predicted == pytest.approx(WNBA_PREDICTION)
         assert actual == pytest.approx(0.016128)
+
+    async def test_the_stored_alert_keeps_the_gap_visible(
+        self, conn, alerter, notifier
+    ):
+        """A fee is a fraction of a cent, so two decimals erase the finding.
+
+        The 2026-10-18 alarm was stored as "0.01 vs 0.01" for a $0.000008
+        gap, and nobody reading the record could tell how big it was without
+        going back to the venue.
+        """
+        client = FakeClient(fills=[wnba_fill(fee_cost="0.016128")])
+
+        await poll_portfolio(conn, client, now_ms=FEE_DAY_ONE_MS, alerter=alerter)
+
+        (detail,) = conn.execute(
+            "SELECT detail FROM notifications WHERE detail LIKE ?",
+            (f"{WNBA_TICKER}%",),
+        ).fetchone()
+        assert detail == f"{WNBA_TICKER} 0.014200 vs 0.016128"
 
     async def test_a_missing_fee_actual_refuses_rather_than_alerting(
         self, conn, alerter, notifier

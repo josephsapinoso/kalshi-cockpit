@@ -99,6 +99,7 @@ from .core.fees import (
     FEE_MATCH_TOLERANCE_DOLLARS,
     calculate_fee,
     combo_taker_fee,
+    combo_taker_fee_at_dollars,
 )
 from .core.prices import dollars_to_tenths
 from .kalshi.discovery import parse_ms
@@ -221,6 +222,12 @@ class ParsedFill:
     # caused it. Optional: a fill without one still records (refusing a real
     # fill over a missing join key is the wrong way round).
     venue_order_id: Optional[str] = None
+    # The venue's own price for our side, exactly as sent. `price_tenths` is
+    # that price rounded onto the tenths grid, which is exact on a single
+    # market and NOT on a combination below 1c or above 99c (hundredths of a
+    # cent). Only the fee reconciliation reads this; the stored row keeps
+    # `price_tenths`. None on a row built from storage, which never had it.
+    price_dollars: Optional[Decimal] = None
 
 
 def parse_fill(row: dict) -> Optional[ParsedFill]:
@@ -272,6 +279,9 @@ def parse_fill(row: dict) -> Optional[ParsedFill]:
         is_taker=is_taker,
         fee_actual=_fee_dollars(row.get("fee_cost")),
         venue_order_id=str(order_id) if order_id else None,
+        # `dollars_to_tenths` accepted it above, so it is a finite,
+        # non-negative decimal string.
+        price_dollars=Decimal(str(row.get(price_key))),
     )
 
 
@@ -404,7 +414,14 @@ def predict_fill_fee(parsed: ParsedFill) -> FeePrediction:
                     "only, so this repo has no coefficient to predict with"
                 ),
             )
-        dollars = combo_taker_fee(parsed.price_tenths, parsed.count)
+        # At the venue's own price when the fill carried one: a combination
+        # below 1c or above 99c is priced in hundredths of a cent, and the
+        # tenths-rounded price undershot the ceiling by $0.000008 on
+        # 2026-10-18 and fired the stop-the-line alarm on a ceiling that held.
+        if parsed.price_dollars is not None:
+            dollars = combo_taker_fee_at_dollars(parsed.price_dollars, parsed.count)
+        else:
+            dollars = combo_taker_fee(parsed.price_tenths, parsed.count)
         model = "combo_taker_ceiling_0071"
     else:
         dollars = calculate_fee(
