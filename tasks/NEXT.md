@@ -145,19 +145,19 @@ the channel diagnostic (A17.6/A17.11).
 - **#376 read and closed** (n = 4 NFL, 528K–640K, median ~539K, two skips; day 2.60M of 5M, nothing refused). **Joe's answers (AskUserQuestion):** #376 lever **(A)**, #380 **(B)** (no build), #398 **(B)**.
 - **#384 built** `aa19896b`, ADR 0190 Amendment 5: a card tap reserves `GAME_SCRIPT_TOKEN_RESERVATION` (NFL 640K) before the call, capped at ceiling − 1. **#398 built** `976beacf`: section h2s step down to xl/2xl, pinned.
 - **First real `hedge_derisk`** fired 17:46Z (row 24129, position 186, PIT −1.5 leg at 25%), delivered; `/api/hedge` ladder arithmetic checks by hand. The embed's figures are not stored, so the push itself can't be re-compared. CLAUDE.md's "/hedge has produced zero locks" (stale since 2026-09-16) replaced with a count-free pointer.
+- **#400 built** `28e1638a` at Joe's ask: discovery FLOORS a bid to the tenth (`core.prices.bid_dollars_to_tenths`), so an edge-band combo's derived ask never reads below the venue's and an IOC at it still fills at the venue's price. The ticket said refuse; refusing would show "no ask" on every edge-band combo, so the ticket carries why and says not to revert. kalshi-platform reviewed; HALF_UP mutation red. Unconfirmed: no wire capture of a sub-tenth `/markets` bid; no observed fill below a ceiled sub-tenth limit. Live and demo on `28e1638a` (CI 39157213730, deploys 39157659776 / 39157749972).
 - **Verification:** 1,466 related tests locally, every new guard mutated red; CI green on `976beacf` (39154473640); live (39155000655) then demo (39155100998) deployed; both `/api/health` `build.git_sha` = `976beacf`.
 
 ### Still open
 
-1. #400 — discovery rounds an edge-band combo's bid to the tenth; the buy screen shows its ask and fee a hair low (owner:main, money path).
-2. #355 — same-game vs cross-sport half only; still behind #331.
-3. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
-4. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
-5. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
-6. #347 — the backend no-op sweep and the routes nothing calls; deferred.
-7. #337 — 2027-01-15: look B for P1 only.
-8. #331 — 2026-11-01: the leg census by kind.
-9. #151, #197, #267 — carried forward unchanged.
+1. #355 — same-game vs cross-sport half only; still behind #331.
+2. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
+3. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+4. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
+5. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+6. #337 — 2027-01-15: look B for P1 only.
+7. #331 — 2026-11-01: the leg census by kind.
+8. #151, #197, #267 — carried forward unchanged.
 
 ## 2026-10-18 (hundredth session) — a hedge push for a multi-leg ticket with a leg going bad (#399, ADR 0078 Amendment 3); live and demo on `a573c013`
 
