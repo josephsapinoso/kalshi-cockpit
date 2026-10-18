@@ -535,6 +535,84 @@ def last_leg_sentence(position: Mapping[str, Any], *, now_ms: int) -> Optional[s
     return f"{won} of {total} legs won. {book_part} {hold_part}{tail}"
 
 
+#: The `notifications.kind` of the derisk push. AMENDS ADR 0078 Decision 2 a
+#: second time (Amendment 3, Joe 2026-10-18): a ticket with several legs live
+#: whose weakest leg has gone bad now reaches the phone, naming the hedge. Its
+#: own kind, so it is its own dedupe bucket -- the reason `POSITION_STATE_KIND`
+#: gives for being separate from `hedge_lock` applies to it unchanged.
+DERISK_KIND = "hedge_derisk"
+
+#: The venue bid, on the side held, below which a live leg counts as "not
+#: looking good". Joe's number (Amendment 3: "Below 35%"). **Strictly below**:
+#: a leg at exactly 35% does not fire.
+#:
+#: Absolute, not a drop, because nothing stores a leg's price at the moment
+#: the ticket was recorded -- so a leg bet as a 30% underdog fires at its
+#: first in-play read. Joe chose this knowing that; the ADR records it.
+DERISK_TRIGGER_PROBABILITY = 0.35
+
+#: How many derisk pushes one budget day may carry, across every ticket. Its
+#: own ceiling, for `MAX_POSITION_STATE_PUSHES_PER_DAY`'s reason: a different
+#: product competing for the same phone, which must neither silence nor be
+#: silenced by the others.
+MAX_DERISK_PUSHES_PER_DAY = 4
+
+
+def _hedge_leg(position: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
+    """The leg `hedge.assess` chose to hedge (`is_hedge_leg`), or `None`."""
+    for leg in position.get("legs") or []:
+        if leg.get("is_hedge_leg"):
+            return leg
+    return None
+
+
+def derisk_key(position: Mapping[str, Any], *, now_ms: int) -> Optional[str]:
+    """`hedge_derisk:<position id>:<hedge leg id>` -- once per leg, ever.
+
+    **Not a ratchet and not a day bucket.** A leg plays one game, so "this leg
+    went below the line" is said once: a leg that recovers and dips again stays
+    quiet, and the screen carries the rest. A DIFFERENT leg becoming the
+    weakest and crossing is a different statement and gets its own key.
+
+    `None` unless every condition holds:
+
+    - the position has an id and at least two pending legs (one pending leg is
+      `hedge_lock`'s or nobody's -- with one leg live the figure is a lock or
+      a refusal, never a derisk);
+    - the hedge block is a priced derisk (`kind == "derisk"`, no refusal) with
+      a full-hedge rung to name;
+    - the hedged leg's raw venue bid is readable and strictly below
+      `DERISK_TRIGGER_PROBABILITY`. **An unreadable bid never fires**: it is
+      the leg we know least about, not the one doing worst
+      (`hedge.assess` sorts it last for the same reason);
+    - the hedged leg's game has started. An unknown kickoff counts as started
+      -- the watcher's own rule (`hedge_watch.anything_in_progress`), because
+      an unknown start must not resolve to "not yet" and silence the push for
+      the whole game.
+    """
+    pid = position.get("id")
+    if pid is None:
+        return None
+    pending = position.get("pending_legs")
+    if not pending or int(pending) < 2:
+        return None
+    block = position.get("hedge") or {}
+    if block.get("refusal") is not None or block.get("kind") != "derisk":
+        return None
+    if not block.get("full"):
+        return None
+    leg = _hedge_leg(position)
+    if leg is None or leg.get("outcome") != "pending" or leg.get("id") is None:
+        return None
+    probability = leg.get("bid_probability")
+    if probability is None or float(probability) >= DERISK_TRIGGER_PROBABILITY:
+        return None
+    commence = leg.get("commence_ms")
+    if commence is not None and int(commence) > now_ms:
+        return None
+    return f"{DERISK_KIND}:{pid}:{leg['id']}"
+
+
 @dataclass(frozen=True)
 class AlertResult:
     """What one pass decided to say. Returned so the loop can log it.
@@ -1111,10 +1189,12 @@ class Alerter:
     ) -> AlertResult:
         """Push the tickets whose hedge locks a gain. Nothing else.
 
-        **Only locks reach the phone.** A ticket with several legs live has no
-        guaranteed figure to state, and a push about it would be a buzz for a
-        number the tool cannot stand behind. Those stay on the screen -- Joe's
-        own choice, recorded in ADR 0078 Decision 2.
+        **Only locks reach THIS push.** A ticket with several legs live has no
+        figure that comes to about the same either way, so it never renders
+        here. Since ADR 0078 Amendment 3 (Joe, 2026-10-18) such a ticket has a
+        push of its own when its weakest leg goes below 35% --
+        `hedge_derisks`, which names the bet and says the hedge settles
+        nothing; until then it stayed on the screen by his 2026-08-26 answer.
 
         **Only reachable locks.** `guaranteed` is computed from the rung bounded
         by the book's depth and by the observed balance; a lock nobody could
@@ -1246,6 +1326,79 @@ class Alerter:
                 sent.append(key)
                 # Only a DELIVERED push spends the ceiling -- one Discord
                 # outage must not silence the rest of the day (ADR 0072 §4).
+                pushed_today += 1
+            else:
+                failed.append(key)
+
+        return AlertResult(
+            sent=tuple(sent), failed=tuple(failed), skipped=tuple(skipped)
+        )
+
+    def _derisk_pushes_today(self, *, day_start_ms: int) -> int:
+        """Delivered derisk pushes since the budget day began. Its own query
+        on `DERISK_KIND` alone, so its ceiling is shared with nothing."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM notifications "
+            "WHERE kind = ? AND sent_ms >= ? AND delivered = 1",
+            (DERISK_KIND, day_start_ms),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    async def hedge_derisks(
+        self, screen: Mapping[str, Any], *, now_ms: int, day_start_ms: int
+    ) -> AlertResult:
+        """Push a ticket with several legs live whose weakest leg is below
+        35%, naming the full and half hedge. ADR 0078 Amendment 3 -- Joe,
+        2026-10-18: *"if there is a 6-leg parlay, but 1 is not looking good,
+        it would be good to have a hedge alert send with the recommendation of
+        what to bet."*
+
+        **What survives from Decision 2.** The push names a bet, its cost and
+        both outcomes the tool can state, and **no moment**: nothing measured
+        here says the price gets better or worse by waiting (Joe chose "Name
+        the bet, no 'now'"). And it never calls the hedge a lock: with other
+        legs live, buying the other side of one settles nothing.
+
+        **What it reverses.** D2 kept a derisk off the phone because it would
+        be a number the tool cannot stand behind. The numbers this push states
+        -- cost, what the hedge returns if the leg loses, the worst case --
+        are the screen's own branch arithmetic on a price the venue showed, so
+        it carries no figure the screen does not already stand behind. The
+        2026-09-10 argument that a bad-news-only alert is a nudge by
+        construction is overridden by Joe's answer, not refuted; the ADR says
+        so in those words.
+
+        Same shape as `position_states`: a screen-only ticket is neither sent
+        nor skipped, and only a delivered push spends the ceiling.
+        """
+        if not self.enabled:
+            return AlertResult()
+
+        sent: list[str] = []
+        failed: list[str] = []
+        skipped: list[str] = []
+        notes = dict(screen.get("notes") or {})
+        pushed_today = self._derisk_pushes_today(day_start_ms=day_start_ms)
+
+        for position in screen.get("positions") or []:
+            key = derisk_key(position, now_ms=now_ms)
+            if key is None:
+                continue
+            if pushed_today >= MAX_DERISK_PUSHES_PER_DAY:
+                skipped.append(key)
+                continue
+            leg = _hedge_leg(position) or {}
+            outcome = await self._send(
+                DERISK_KIND,
+                key,
+                lambda p=position: self.notifier.hedge_derisk(p, notes=notes),
+                now_ms=now_ms,
+                detail=str(leg.get("chance_display") or ""),
+            )
+            if outcome is None:
+                skipped.append(key)
+            elif outcome:
+                sent.append(key)
                 pushed_today += 1
             else:
                 failed.append(key)

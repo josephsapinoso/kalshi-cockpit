@@ -2284,9 +2284,29 @@ def _hedge_payload(
                     if outcome.joint_refusal is not None
                     else None
                 ),
+                # The two sizes the derisk push names (ADR 0078 Amendment 3,
+                # Joe 2026-10-18: "Full + half"). Picked from the ladder the
+                # screen already renders, never recomputed, so the phone and
+                # the screen cannot disagree by a contract.
+                **_full_and_half(outcome),
             }
         )
     return block
+
+
+def _full_and_half(outcome: Derisk) -> dict:
+    """The full-hedge rung (contracts = the ticket's payout in dollars) and
+    the half rung, as `_ladder` sized them. `half` is `None` when it is the
+    same size as `full` -- a one-contract ticket has no half to offer."""
+    by_size = {rung.contracts: rung for rung in outcome.ladder}
+    full_n = max(1, int(round(outcome.return_tenths / SETTLEMENT_TENTHS)))
+    half_n = max(1, int(round(full_n * 0.5)))
+    full = by_size.get(full_n)
+    half = by_size.get(half_n) if half_n != full_n else None
+    return {
+        "full": _rung_payload(full) if full is not None else None,
+        "half": _rung_payload(half) if half is not None else None,
+    }
 
 
 def _leg_payload(
@@ -2318,6 +2338,12 @@ def _leg_payload(
         # The venue's own bid, as a percentage. Absent -- never 0% -- when
         # nobody is bidding or the leg has no market at all.
         "chance_display": format_probability(probability),
+        # The raw figure, for the derisk push's 35% trigger ALONE
+        # (`notify.alerts.derisk_key`; ADR 0078 Amendment 3). Same ruling as
+        # `floor_tenths` on a rung: a trigger keyed on the rendered string
+        # would parse a display, and the client must not compute with it --
+        # `HedgeLeg` in `frontend/src/lib/api.ts` does not declare it.
+        "bid_probability": probability,
         "quote_age_ms": (
             max(0, now_ms - book.observed_ms) if book is not None else None
         ),

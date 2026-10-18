@@ -645,6 +645,98 @@ class DiscordNotifier:
             }
         )
 
+    async def hedge_derisk(self, position: dict, *, notes: dict) -> bool:
+        """A hedge on a ticket with several legs live, whose weakest leg has
+        gone below 35% by the venue's own bid. ADR 0078 Amendment 3 -- Joe,
+        2026-10-18, who asked for "the recommendation of what to bet".
+
+        **It names the bet and states no moment.** Contract count, side and
+        price; what the hedge costs; what it comes to if the leg loses; the
+        worst case. Each is the screen's branch arithmetic on a price the
+        venue showed (`hedge._derisk_rung_payload`), and nothing here says
+        whether waiting would be better or worse, because nothing measured
+        does -- Joe's own choice ("Name the bet, no 'now'").
+
+        **It never calls the hedge a lock.** With other legs live, the hedge
+        settles nothing: if the hedged leg wins, the ticket still rides on the
+        rest and the hedge pays nothing. The description says exactly that,
+        and `MANY_LIVE_FORBIDDEN` in the tests refuses the lock words.
+
+        **Pre-rendered strings only**, for `hedge_lock`'s reason. A lock block
+        never renders here, and a derisk without a full-hedge rung has nothing
+        to name -- both guarded here as well as in the policy.
+        """
+        if not self.config:
+            return False
+        block = position.get("hedge") or {}
+        full = block.get("full")
+        if block.get("kind") != "derisk" or block.get("refusal") is not None or not full:
+            return False
+
+        legs = position.get("legs") or []
+        leg = next((x for x in legs if x.get("is_hedge_leg")), None)
+        if leg is None:
+            return False
+        total = len(legs)
+        n_live = sum(1 for x in legs if x.get("outcome") == "pending")
+        side = str(block.get("side") or "").upper()
+        ask = block.get("ask_display")
+        bankroll_known = bool(position.get("bankroll_known"))
+
+        def rung_text(rung: dict) -> str:
+            text = (
+                f"Buy {rung['contracts']} × {side} at {ask}, costs "
+                f"{rung['cost_display']}. If this leg loses: "
+                f"{rung['if_leg_loses_display']}. Worst case: "
+                f"{rung['floor_display']}."
+            )
+            limits = []
+            if not rung.get("fillable"):
+                limits.append("more than the book holds at this price")
+            if not bankroll_known:
+                limits.append("your balance could not be read")
+            elif not rung.get("affordable"):
+                limits.append("beyond your balance")
+            if limits:
+                text += f" ({'; '.join(limits)})"
+            return text
+
+        fields = [_field("Full hedge", rung_text(full), inline=False)]
+        half = block.get("half")
+        if half:
+            fields.append(_field("Half hedge", rung_text(half), inline=False))
+        fields.append(
+            _field(
+                "Ticket",
+                f"{position.get('stake_display')} → {position.get('return_display')}",
+            )
+        )
+
+        return await self._post(
+            {
+                "title": f"Hedge available — {position.get('label')}",
+                "description": (
+                    f"{leg.get('label')} is at {leg.get('chance_display')} by "
+                    f"the venue's own bid. {n_live} of {total} legs are still "
+                    "live, so this hedge does not settle your result: if this "
+                    "leg wins, the ticket rides on the others and the hedge "
+                    "pays nothing."
+                ),
+                "url": f"{self.config.cockpit_base_url}/hedge",
+                # The parlay colour, for `hedge_lock`'s reason: this is not an
+                # opportunity, it is money already at risk.
+                "color": COLOUR_PARLAY,
+                "fields": fields,
+                "footer": {
+                    "text": "\n".join(
+                        note for note in (
+                            notes.get("not_advice"), notes.get("no_button"),
+                        ) if note
+                    )
+                },
+            }
+        )
+
     async def last_leg_watch(self, position: dict, text: str) -> bool:
         """One unstarted leg is all that is left of a held combination (#329;
         Joe, 2026-10-08: "Book only; makers on my tap").

@@ -419,8 +419,11 @@ before it sent a session to re-do the work.)
 No model, no tokens, no credits (asserted over the source of `core/hedge.py`,
 `hedge.py`, `hedge_watch.py`); no `recommendations` row and no gate read. With
 one leg live there is a figure and it is pushed to the phone; with several
-there is no figure and the screen says so. Neither claims the price will get
-worse if he waits.
+there is no figure that comes out the same either way, and since 2026-10-18
+(ADR 0078 Amendment 3, Joe's answers) a `hedge_derisk` push fires once per leg
+when the weakest live leg's venue bid is below 35% in play, naming the full and
+half hedge with cost, if-it-loses and worst case. Neither claims the price will
+get worse if he waits.
 
 **That figure is an estimate pinned in neither direction, not a lock and not
 a bound.** This line said "exact" until 2026-09-10, "an upper bound" until

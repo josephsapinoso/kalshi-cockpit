@@ -218,11 +218,18 @@ async def watch_once(
     state_result = await alerter.position_states(
         screen, now_ms=now_ms, day_start_ms=day_ms,
     )
+    # The derisk push (ADR 0078 Amendment 3, Joe 2026-10-18): several legs
+    # live, the weakest below 35%. Same screen, its own bucket and ceiling.
+    derisk_result = await alerter.hedge_derisks(
+        screen, now_ms=now_ms, day_start_ms=day_ms,
+    )
     merged = dict(lock_result.as_dict())
     for key, value in state_result.as_dict().items():
-        # Distinct keys so a caller can tell the two pushes apart rather than
-        # summing them into one number that answers neither question.
+        # Distinct keys so a caller can tell the pushes apart rather than
+        # summing them into one number that answers no question.
         merged[f"position_{key}"] = value
+    for key, value in derisk_result.as_dict().items():
+        merged[f"derisk_{key}"] = value
     return {
         "legs_settled": settled,
         "positions": len(screen["positions"]),
@@ -333,6 +340,7 @@ async def watch_hedges_forever(
                         summary["alerts_sent"]
                         or summary["legs_settled"]
                         or summary["position_alerts_sent"]
+                        or summary["derisk_alerts_sent"]
                     ):
                         logger.info("hedge watch: %s", summary)
                 if now_ms >= last_leg_due_ms and last_leg_waiting(

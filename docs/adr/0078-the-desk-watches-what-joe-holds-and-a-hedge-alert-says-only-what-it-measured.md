@@ -337,3 +337,63 @@ the `try/except` under test was never entered.
 - **That a leg Joe marks as won actually won.** A sportsbook leg has no Kalshi
   ticker and cannot be resolved from the venue, so `resolved_source = 'manual'`
   is his word and is recorded as his word.
+
+## Amendment 3 — 2026-10-18: a several-legs-live hedge reaches the phone
+
+Numbered after the two earlier changes to this ADR: the 2026-09-08 note
+under Decision 1 (Amendment 1) and the 2026-09-10 symmetric "legs in play"
+push that amended Decision 2 (Amendment 2, recorded in
+`backend/notify/alerts.py:POSITION_STATE_KIND`).
+
+**Joe's ask, verbatim:** *"is there a discord alert we have for sending
+hedges ? if not, can we explore making one and ensure it is sent when its
+time to hedge? for example, if there is a 6-leg parlay, but 1 is not looking
+good, it would be good to have a hedge alert send with the recommendation of
+what to bet"*.
+
+His example is the case Decision 2 kept off the phone. Four questions were
+put to him (AskUserQuestion, 2026-10-18) and answered:
+
+1. **Reverse D2's "DE-RISK does not push" for this case** — "Yes, push it".
+2. **The trigger** — "Below 35%": the hedged leg's venue bid, on the side
+   held, strictly below 0.35, once its game has started (an unknown kickoff
+   counts as started, the watcher's rule).
+3. **The wording** — "Name the bet, no 'now'": side, size, price, cost,
+   what the hedge comes to if the leg loses, and the worst case. No moment.
+4. **The sizes** — "Full + half": the full hedge (contracts = the payout in
+   dollars) and the half, both off the ladder the screen already renders.
+
+**What survives.** D2's timing rule stands untouched: nothing measured here
+says the price improves or worsens by waiting, so the push states what is
+available and never when. The push never uses a lock word: with other legs
+live, buying the other side of one settles nothing, and the description
+says so ("if this leg wins, the ticket rides on the others and the hedge
+pays nothing"). Decision 4 stands: no `recommendations` row, no gate read.
+Nothing metered: it rides the 60-second watcher cycle, which reads Kalshi
+only.
+
+**What it reverses, and how.** D2's reason was that the phone would buzz for
+"a number the tool cannot stand behind". The numbers this push states are
+the screen's own branch arithmetic (`DeriskRung`) on a price the venue
+showed, so it states nothing the screen does not. Amendment 2's argument —
+an alert that fires only on bad news is a nudge by construction — is
+**overridden by Joe's answer, not refuted**. It remains true that this push's
+arrival carries information; Joe asked for that.
+
+**The shape.** `notifications.kind = 'hedge_derisk'`, key
+`hedge_derisk:<position>:<leg>`: once per leg, ever. A leg that recovers and
+dips again stays quiet; a different leg becoming the weakest and crossing is
+said again. Its own daily ceiling of four delivered pushes, shared with no
+other push. Code: `notify/alerts.py:derisk_key`, `Alerter.hedge_derisks`,
+`notify/discord.py:DiscordNotifier.hedge_derisk`; tests:
+`tests/test_hedge_derisk_push.py` (four mutations observed red: the 35%
+comparison, the started check, the leg id in the key, the ceiling).
+
+**A known consequence, accepted.** Nothing stores a leg's price at the
+moment the ticket was recorded, so the trigger is absolute, not a drop. A
+leg bet as a 30% underdog pushes at its first in-play read, which is not
+"going bad". Joe chose the absolute line over "drop since bet", which would
+have needed a new column and worked only on tickets recorded after it.
+
+**What this does not establish.** That hedging at 35%, or at any line, beats
+holding. The 35% is Joe's preference, not a measured threshold.
