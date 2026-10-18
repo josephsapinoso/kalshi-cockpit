@@ -139,6 +139,29 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-18 (hundredth session) — a hedge push for a multi-leg ticket with a leg going bad (#399, ADR 0078 Amendment 3); live and demo on `a573c013`
+
+- **Joe's errand, named himself** (so `partner` skipped): "is there a discord alert we have for sending hedges… if there is a 6-leg parlay, but 1 is not looking good… a hedge alert… with the recommendation of what to bet". Three hedge pushes existed (`hedge_lock`, `position_state`, `last_leg_watch`); his case was the one ADR 0078 D2 kept screen-only on his 2026-08-26 answer.
+- **His four answers (AskUserQuestion):** reverse D2 for this case; trigger "Below 35%" on the hedged leg's venue bid, in play; "Name the bet, no 'now'"; "Full + half". Recorded verbatim in ADR 0078 Amendment 3, with the known consequence that an underdog leg bet under 35% pushes at its first in-play read (nothing stores a leg's price at bet time).
+- **Built:** `hedge_derisk` kind, once per leg ever, own ceiling of four delivered a day; embed names side, size, price, cost, if-it-loses and worst case for the full and half hedge, and says when a size is beyond the balance or the book. Nothing metered. `tests/test_hedge_derisk_push.py`, 30 tests; four mutations (35% comparison, started check, leg id in key, ceiling) observed red. Rendered from a real six-leg payload and arithmetic checked by hand.
+- **Verification:** 958 related tests green locally, ruff clean, CI green on `a573c013` (run 39150615287); live deployed (run 39151054784) then demo (run 39151178111); both `/api/health` `build.git_sha` = `a573c013`; live `notifications_configured: true`, 0 undelivered in 24h.
+- **Not yet observed:** a real `hedge_derisk` row on live. The next in-play window with a held multi-leg ticket under 35% is the first chance; read `notifications` for the kind.
+
+### Still open
+
+1. #398 — Joe's question: Parlays' page name and first section heading are the same size after #394 — (A) leave, (B) shrink section headings, (C) page names bigger.
+2. #380 — Joe's question: rebuild a game's card at a different leg count; (B) recommended on the ticket.
+3. #376 — 2026-10-18: re-read NFL card cost on the trimmed prompt, now with step counts; prediction ≈670K.
+4. #384 — card tap token hold; blocked by #376.
+5. #355 — same-game vs cross-sport half only; still behind #331.
+6. #210 — closes on the first `complete` convening whose board carries the Matchup tile.
+7. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+8. #361 — 2026-10-27: credit projection after an NBA week; warn Joe before 20,000.
+9. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+10. #337 — 2027-01-15: look B for P1 only.
+11. #331 — 2026-11-01: the leg census by kind.
+12. #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-15 (ninety-ninth session) — nothing to build, by partner's call: PR #395 (#394) finished on screen and shipped; one timing flake pinned by ordering; (B) recommended on #380; the heading hierarchy question is #398; live and demo on `ef7cb3cf`
 
 - **State at start:** main clean at `a3ad8e56`, live and demo on `bc821475`, CI green, zero dependabot alerts, one open PR from the nightly routine (#395 for #394). Board: READY 10, 0 warnings — every item dated in the future (#376 on 10-18 is the next) or waiting on Joe (#380). **Partner: nothing to build today, and that is the finding** (#196); no lane-builder or scout was spawned.
@@ -462,6 +485,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-18 (hundredth session) — Joe's errand: a `hedge_derisk` Discord push when the weakest leg of a multi-leg ticket is below 35% in play, naming the full and half hedge (#399, ADR 0078 Amendment 3); live and demo on `a573c013`
 - 2026-10-15 (ninety-ninth session) — nothing to build (partner); PR #395/#394 finished on screen and shipped, live and demo on `ef7cb3cf`; a signal-cache timing flake pinned by ordering; (B) recommended on #380; heading hierarchy to Joe (#398)
 - 2026-10-14 (ninety-eighth session) — Joe's bet history read whole: picks market-rate, ticket shape is the loss; nine glossary keys (#396), `by_shape` strip on Your bets (#397); ADR 0196; live and demo on `bc821475`
 - 2026-10-14 (ninety-seventh session) — housekeeping: live on `28b0c7a5` by Joe's deploy (#393 closed); #383 awaits a tap; 644/645 were #371; D7 ticketed (#394); worktree removal refused by the classifier
