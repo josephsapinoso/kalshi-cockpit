@@ -196,10 +196,13 @@ class PriceGrid:
             )
 
         if snapped % MICROS_PER_TENTH != 0:
-            # Reachable only on a grid finer than a tenth of a cent -- Kalshi's
-            # `center_centi_edge_centi_cent`, used by combo markets. Refusing is
-            # honest: the project's canonical unit cannot name this price, and a
-            # money path must not quietly send a different one.
+            # Reachable only on a grid finer than a tenth of a cent. No capture
+            # carries one: every KXMVE market in tests/fixtures/ that names its
+            # `price_level_structure` says `deci_cent`, everything else
+            # `linear_cent` (counted 2026-10-20). A combo RFQ can fill finer
+            # ($0.0071, 2026-10-18) but that price never passes through here.
+            # Refusing is honest: the project's canonical unit cannot name this
+            # price, and a money path must not quietly send a different one.
             raise GridUnavailable(
                 f"this market's grid puts a price at {snapped} micro-dollars, "
                 f"finer than the tenth-of-a-cent unit this project represents "

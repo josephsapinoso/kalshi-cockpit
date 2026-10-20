@@ -139,6 +139,24 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-20 (hundred-and-second session) — nothing dated was due; #210 closed on its own condition; grid.py comment corrected; #302 frontier empty by finding; live and demo on `28e1638a`
+
+- **State verified:** main clean, no PRs, no lanes; live and demo `/api/health` `build.git_sha` = `28e1638a`; 0 open Dependabot alerts. Partner's call: no dated work is due (everything is 10-27 or later), NBA opening night tests the caps on its own, short session.
+- **#210 closed.** `scout-briefings --days 8`: taps only, 3 `complete` / 3 `partial`, 0 refusals. All three `complete` convenings since #377 (10-16 MLB, 10-16 NCAAF, 10-19 NFL) carry sourced Matchup facts on live `/api/scout/<ticker>`.
+- **`backend/kalshi/grid.py:200`** said the sub-tenth branch is "used by combo markets" via `center_centi_edge_centi_cent`; no capture supports it (fact-scout: KXMVE fixtures carry `deci_cent` where the field is present, 14 tickers; nothing finer anywhere). Comment-only fix; behaviour unchanged.
+- **#361** got the notes for its 10-27 read (October ~12–13K of 18,000, extrapolated; 10-24 is the first day #359's estimate crosses 700, so read `sweep-log` for 10-24/25; NBA taps hold the 640K NFL reservation until measured).
+- **Map #302 frontier empty, checked 2026-10-20; no Joe-only decision pending.** Next expected: #361's 20,000-plan warning (10-27 at the earliest, more likely a November projection) and #360 (11-01).
+
+### Still open
+
+1. #355 — same-game vs cross-sport half only; still behind #331.
+2. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+3. #361 — 2026-10-27: credit projection after an NBA week, with `sweep-log` for 10-24/25; warn Joe before 20,000.
+4. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+5. #337 — 2027-01-15: look B for P1 only.
+6. #331 — 2026-11-01: the leg census by kind.
+7. #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-18 (hundred-and-first session) — the 16:47Z fee alarm was a rounding artifact, fixed; card taps hold their cost (#384); #376, #380, #398 answered; live and demo on `976beacf`
 
 - **Partner found a live "Fee model mismatch — stop the line" at 16:47Z** on combo `KXMVECROSSCATEGORY-S2026W5VSYTSCWZIE2KMV-IF4HAK66J`. Raw venue row (one read-only `GET /portfolio/fills`): 15.52 @ $0.0071, charged $0.007708. `parse_fill` rounded the price to 7 tenths, so the 0.071 ceiling read $0.0077; at $0.0071 it is $0.0078 (implied k 0.07045). **The ceiling held; the alarm was false.** Partner's "flat-coefficient fallback" lead was refuted by source (`KXMVE` prefix). Fix `ad1fa4e6`: `ParsedFill.price_dollars`, `combo_taker_fee_at_dollars`, stored detail and Discord push to 6 dp; `kalshi-platform` reviewed. Its open notes: discovery's HALF_UP ask on edge-band combos (`discovery.py:721`), ticketed as #400 at Joe's ask; `grid.py:200`'s "centi-cent everywhere" combo claim matches no capture.
@@ -505,6 +523,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-20 (hundred-and-second session) — nothing dated due; #210 closed; grid.py combo-grid comment corrected; #302 empty by finding; live and demo on `28e1638a`
 - 2026-10-18 (hundred-and-first session) — live fee alarm diagnosed as a price-rounding artifact and fixed; #384 card-tap token hold (ADR 0190 Amd 5); #376/#380/#398 answered by Joe; live and demo on `976beacf`
 - 2026-10-18 (hundredth session) — Joe's errand: a `hedge_derisk` Discord push when the weakest leg of a multi-leg ticket is below 35% in play, naming the full and half hedge (#399, ADR 0078 Amendment 3); live and demo on `a573c013`
 - 2026-10-15 (ninety-ninth session) — nothing to build (partner); PR #395/#394 finished on screen and shipped, live and demo on `ef7cb3cf`; a signal-cache timing flake pinned by ordering; (B) recommended on #380; heading hierarchy to Joe (#398)
