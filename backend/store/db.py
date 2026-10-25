@@ -301,7 +301,13 @@ logger = logging.getLogger(__name__)
 #: server-tool steps one call took, so a large card's cost can be split into
 #: listing size and step count (#370, #376). Nullable column step; no
 #: backfill -- NULL is the truth about every earlier row.
-SCHEMA_VERSION = 67
+#:
+#: v68 (2026-10-25) `game_script_cards.leg_count`: the size Joe tapped
+#: (3, 5 or 8), so one game can hold one card per size and a second size
+#: is built rather than answered with the first. Nullable column step; no
+#: backfill -- NULL is the truth about the watcher's 2-3 leg cards and every
+#: tap before v68.
+SCHEMA_VERSION = 68
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1393,6 +1399,10 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59, 
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # The size of each game-script card. See the v68 note above.
+    68: _Migration(
+        columns=(("game_script_cards", "leg_count", "INTEGER"),),
+    ),
     # Server-tool steps on each agent call. See the v67 note above.
     67: _Migration(
         columns=(("agent_calls", "server_tool_steps", "INTEGER"),),

@@ -96,3 +96,12 @@ A scout convening per game; a second NFL refresh; prices in the prompt; any comb
 **The decision (Joe, AskUserQuestion, 2026-10-18).** (A): accept ~540K per NFL tap and refuse up front, over (B) a cheap skip check before the listing is read and (C) cutting more listing sections. `build_card` now passes `card_token_reservation(sport_key, ceiling)` as `reserved_tokens` to `AgentBudget.refusal_reason`, so a tap is refused when recorded + its hold reaches the ceiling, and spends nothing. Holds (`GAME_SCRIPT_TOKEN_RESERVATION`): NFL 640K (today's max), college football 230K and baseball 360K (#370's maxima, pre-trim); an unmeasured sport holds the largest. **A hold never exceeds the ceiling minus one**, so a copy run at the 500K default still builds a card on an empty day rather than refusing every card forever.
 
 **Not changed.** Leg verdicts in flight are not added to a card's hold (they reserve against each other in their own route); card builds are serialised per process (`_CARD_BUILD_LOCK`), so two concurrent card taps cannot both be admitted. The 5M ceiling stands. The step count is now read (above) but still not stored on the ledger.
+
+
+## Amendment 6 — one game holds one card per size (2026-10-25, on Joe's word)
+
+**What he asked.** He built an 8-leg card for a game and wanted a 3 and a 5 beside it. The size buttons on `/game/<event>` vanished once a card existed, and the build dedupe would have handed back the 8 for any size.
+
+**The decision.** `game_script_cards.leg_count` (schema v68) keeps the size tapped; NULL is the watcher's 2-3 leg card and every row before v68, not backfilled. The dedupe in `build_card_for_game` is per size: a size the game holds is reused and spends nothing, any other size builds. `/api/game-cards` serves the newest card of each size (`latest_per_size_for_game`; within a size a built card still beats a later refusal), one game's cards together, smallest first, still under kickoff order. The game page keeps the size buttons up and disables only a size already built or skipped. A mint stamps the newest built card whose legs match, of any size.
+
+**Cost.** Each size is its own metered call under the Amendment 5 hold: three sizes on one NFL game is ~1.6M of the 5M ceiling, and a T-2h re-check can run per card. Nothing about the ceiling changed.

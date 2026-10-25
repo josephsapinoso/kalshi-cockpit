@@ -79,12 +79,14 @@ async def build_card_for_game(
     client=None,
     leg_count: Optional[int] = None,
 ) -> dict:
-    """Build one game's card, or return the one it already has (#215, #217).
+    """Build one game's card, or return the one of this size it already has
+    (#215, #217). One game holds one card per size (v68): an 8-leg card does
+    not answer a tap for 3, and a second tap of the same size reuses.
 
     **The one build path.** Joe's tap (`POST /api/game/{event}/card`) and the
     unattended watcher (`backend/game_script_watch.py`) both come through
     here, so both take `_CARD_BUILD_LOCK` and both reuse a `built` or
-    `skipped` card rather than paying for a second. The lock is per process:
+    `skipped` card of the same size rather than paying for a second. The lock is per process:
     the watcher runs in the loop process and the tap in the API process, so a
     tap and a watcher build of the SAME game in the same minute can both pay.
     The watcher builds at T-24h and the reuse check catches every later tap,
@@ -107,6 +109,7 @@ async def build_card_for_game(
             held = game_script_cards.latest_for_game(
                 write_conn, event_ticker.strip().upper(),
                 statuses=("built", "skipped"),
+                leg_count=leg_count,
             )
             if held is not None:
                 return {"card": held, "reused": True}
@@ -230,10 +233,20 @@ _ASK_READ_CONCURRENCY = 6
 
 def kickoff_order(cards: list[dict]) -> list[dict]:
     """Cards in kickoff order and no other (ADR 0071). The game ticker only
-    breaks a tie between two games kicking off together. **Nothing here reads
+    breaks a tie between two games kicking off together, and the card's size
+    only orders one game's cards among themselves. **Nothing here reads
     a leg, an ask or a story**: an ordering is a claim, and the only one this
     list may make is the clock."""
-    return sorted(cards, key=lambda c: (c["kickoff_ms"], c["game_event_ticker"]))
+    return sorted(
+        cards,
+        key=lambda c: (
+            c["kickoff_ms"],
+            c["game_event_ticker"],
+            # One game's cards sit together, unsized first, then by size.
+            c.get("leg_count") is not None,
+            c.get("leg_count") or 0,
+        ),
+    )
 
 
 #: What the list says on a game the unattended watcher declined to build. The
@@ -460,6 +473,7 @@ def no_row_card(game_event_ticker: str, info: dict) -> dict:
         "dropped_legs": [],
         "sources": None,
         "ticket_needs": None,
+        "leg_count": None,
     }
 
 
@@ -629,9 +643,9 @@ def register(
     async def game_cards(
         game_event_ticker: Optional[str] = None, conn=Depends(get_conn)
     ) -> dict:
-        """The stored game-script cards, newest per game, in KICKOFF order (#216).
+        """The stored game-script cards, newest per game and size, in KICKOFF order (#216).
 
-        With `game_event_ticker`, that one game's latest card (or an empty
+        With `game_event_ticker`, that one game's latest card of each size (or an empty
         list). Without it, every game that has not kicked off, plus every in-scope game kicking
         off within 24 h that has no card row (`status: "none"`). **Skipped and
         refused games are in the list, each with its reason in `no_card_line`**;
@@ -660,13 +674,9 @@ def register(
             tonight = tonights_games(conn, now)
         cards: list[dict] = []
         for game in games:
-            # A built card beats a later refusal: a refusal never replaces a
-            # card Joe could use.
-            card = game_script_cards.latest_for_game(
-                conn, game, statuses=("built",)
-            ) or game_script_cards.latest_for_game(conn, game)
-            if card is not None:
-                cards.append(card)
+            # One card per size (v68). Within a size a built card beats a
+            # later refusal: a refusal never replaces a card Joe could use.
+            cards.extend(game_script_cards.latest_per_size_for_game(conn, game))
         # A game kicking off in the next 24 h with no card row at all is
         # listed too (#358): the watcher is off, so the rows it wrote at T-24h
         # stop arriving and a list of stored cards alone goes empty on a night

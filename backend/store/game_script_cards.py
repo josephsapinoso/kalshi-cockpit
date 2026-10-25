@@ -45,8 +45,10 @@ def insert_card(
     reason: Optional[str] = None,
     prompt_version: Optional[str] = None,
     agent_call_id: Optional[int] = None,
+    leg_count: Optional[int] = None,
 ) -> int:
-    """Write one card row and return its id."""
+    """Write one card row and return its id. `leg_count` is the size Joe
+    tapped; `None` is the watcher's 2-3 leg card."""
     if status not in STATUSES:
         raise ValueError(f"unknown card status {status!r}")
     if status == "built" and not (story and legs):
@@ -57,8 +59,8 @@ def insert_card(
     cursor = conn.execute(
         "INSERT INTO game_script_cards (game_event_ticker, sport_key, "
         "kickoff_ms, built_ms, status, story, legs_json, drop_if, sources_json, "
-        "ticket_needs, reason, prompt_version, agent_call_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "ticket_needs, reason, prompt_version, agent_call_id, leg_count) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             game_event_ticker,
             sport_key,
@@ -73,6 +75,7 @@ def insert_card(
             reason,
             prompt_version,
             agent_call_id,
+            leg_count,
         ),
     )
     conn.commit()
@@ -273,21 +276,58 @@ def sport_key_for(game_event_ticker: str) -> str:
     return series.lower()
 
 
+#: `latest_for_game`'s default: any size. `None` is a size of its own (the
+#: watcher's 2-3 leg card), so "any" needs a value that is not `None`.
+ANY_SIZE = object()
+
+
 def latest_for_game(
     conn: sqlite3.Connection,
     game_event_ticker: str,
     statuses: Optional[Sequence[str]] = None,
+    leg_count=ANY_SIZE,
 ) -> Optional[dict]:
     """The newest card row for a game (`built_ms` DESC), legs decoded, or
     `None`. With `statuses`, only rows in one of them: the dedupe asks for
-    `built`/`skipped`, so a refusal never blocks a retry."""
+    `built`/`skipped`, so a refusal never blocks a retry. With `leg_count`,
+    only that size (`None` matches the unsized card), so an 8-leg card never
+    answers a tap for 3."""
     sql = "SELECT * FROM game_script_cards WHERE game_event_ticker = ?"
     args: list = [game_event_ticker]
+    if leg_count is not ANY_SIZE:
+        sql += " AND leg_count IS ?"
+        args.append(leg_count)
     if statuses:
         sql += " AND status IN (%s)" % ",".join("?" * len(statuses))
         args += list(statuses)
     row = conn.execute(sql + " ORDER BY built_ms DESC, id DESC LIMIT 1", args).fetchone()
     return _row_to_dict(row) if row is not None else None
+
+
+def latest_per_size_for_game(
+    conn: sqlite3.Connection, game_event_ticker: str
+) -> list[dict]:
+    """One card per size the game holds: the newest built card of that
+    size, else its newest row of any status (a refusal never replaces a card
+    Joe could use). Unsized first, then 3, 5, 8: a fixed order by size, never
+    by anything on a card (ADR 0071)."""
+    sizes = [
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT leg_count FROM game_script_cards "
+            "WHERE game_event_ticker = ?",
+            (game_event_ticker,),
+        ).fetchall()
+    ]
+    sizes.sort(key=lambda n: (n is not None, n or 0))
+    cards = []
+    for size in sizes:
+        card = latest_for_game(
+            conn, game_event_ticker, statuses=("built",), leg_count=size
+        ) or latest_for_game(conn, game_event_ticker, leg_count=size)
+        if card is not None:
+            cards.append(card)
+    return cards
 
 
 def card_by_id(conn: sqlite3.Connection, card_id: int) -> Optional[dict]:

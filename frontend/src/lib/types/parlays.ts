@@ -903,6 +903,9 @@ export type GameScriptCard = {
   recheck_source?: { url: string; published: string } | null;
   /** Kalshi's own name for the game, or `null` when discovery has none. */
   game_title: string | null;
+  /** The size Joe tapped (3, 5 or 8); `null` on the watcher's 2-3 leg card
+   *  and every card before v68. One game holds one card per size. */
+  leg_count?: number | null;
 };
 
 /**

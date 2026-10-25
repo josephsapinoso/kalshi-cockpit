@@ -291,6 +291,7 @@ export default function GameScriptCard({
   return (
     <article className="rounded-xl border border-border bg-card p-4">
       {heading && <GameHeading card={card} />}
+      <SizeLabel card={card} />
 
       {/* The compact face (#221): one line per pick and nothing that needs a
           scroll. Every leg row carries the game's kickoff, because a pick
@@ -582,11 +583,23 @@ function UnbuiltRow({ card }: { card: CardData }) {
   );
 }
 
+/** "8-leg card" over a sized card, so a game's cards can be told apart.
+ *  Nothing on the watcher's unsized card. */
+function SizeLabel({ card }: { card: CardData }) {
+  if (card.leg_count == null) return null;
+  return (
+    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+      {card.leg_count}-leg card
+    </p>
+  );
+}
+
 /** A game with no built card: its reason, in words. Never an empty row. */
 function NoCard({ card, heading }: { card: CardData; heading: boolean }) {
   return (
     <article className="rounded-xl border border-border bg-card p-4">
       {heading && <GameHeading card={card} />}
+      <SizeLabel card={card} />
       <p className="max-w-[65ch] text-sm text-muted">
         {card.no_card_line ?? "No card was built for this game."}
       </p>
@@ -594,12 +607,6 @@ function NoCard({ card, heading }: { card: CardData; heading: boolean }) {
   );
 }
 
-/**
- * The card on `/game/<event>`: the game's latest card, or a "Build card"
- * button when none is stored. A build is one metered model call and can take
- * about a minute, so the wait is shown in words, and a timeout or refusal is
- * a readable message. **Nothing here retries**: a second tap is the reader's.
- */
 /** The sizes Joe may pick on a tap (#379). */
 export const CARD_SIZES = [3, 5, 8] as const;
 
@@ -609,8 +616,27 @@ export function sizeOffWords(size: number, maxLegs: number | null): string | nul
   return `Kalshi allows at most ${maxLegs} legs in one combination on this game.`;
 }
 
+/** Whether a size already holds a card a tap would only get back: a built
+ *  or skipped card of that size. A refused size stays tappable. */
+export function sizeIsHeld(size: number, cards: CardData[]): boolean {
+  return cards.some(
+    (card) =>
+      card.leg_count === size &&
+      (card.status === "built" || card.status === "skipped"),
+  );
+}
+
+/**
+ * The cards on `/game/<event>`: one per size the game holds (3, 5, 8 and the
+ * watcher's unsized card), and the size buttons, which stay up after a build
+ * so a second size can be built beside the first. A size that already holds
+ * a card is shown as built and cannot be tapped again. A build is one metered
+ * model call and can take about a minute, so the wait is shown in words, and
+ * a timeout or refusal is a readable message. **Nothing here retries**: a
+ * second tap is the reader's.
+ */
 export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
-  const [card, setCard] = useState<CardData | null | undefined>(undefined);
+  const [cards, setCards] = useState<CardData[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [buildWords, setBuildWords] = useState<string | null>(null);
@@ -634,7 +660,7 @@ export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
   const load = useCallback(async () => {
     try {
       const payload = await fetchGameCards(eventTicker);
-      setCard(payload.cards[0] ?? null);
+      setCards(payload.cards);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "unavailable");
@@ -654,11 +680,19 @@ export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
     await load();
   };
 
-  const canBuild = !card || card.status.startsWith("refused");
+  const title = cards?.find((card) => card.game_title)?.game_title;
+  // A refusal of a size that has since been built is not worth a box.
+  const shown = (cards ?? []).filter(
+    (card) =>
+      card.status === "built" ||
+      card.status === "skipped" ||
+      card.leg_count == null ||
+      !sizeIsHeld(card.leg_count, cards ?? []),
+  );
 
   return (
     <section aria-label="Game-script card" className="mt-6 space-y-3">
-      {card === undefined && !error && (
+      {cards === undefined && !error && (
         <p className="text-sm text-muted">Reading this game&rsquo;s card…</p>
       )}
       {error && (
@@ -668,35 +702,41 @@ export function GameCardPanel({ eventTicker }: { eventTicker: string }) {
       )}
       {/* The game's own name, so the page is not headed by a raw ticker
           alone (seen live 2026-09-30); the ticker stays below the h1. */}
-      {card?.game_title && (
-        <h2 className="text-xl font-semibold">{card.game_title}</h2>
-      )}
-      {card && <GameScriptCard card={card} />}
-      {card === null && !building && (
+      {title && <h2 className="text-xl font-semibold">{title}</h2>}
+      {shown.map((card) => (
+        <GameScriptCard key={card.id ?? `size-${card.leg_count}`} card={card} />
+      ))}
+      {cards?.length === 0 && !building && (
         <p className="max-w-[65ch] text-sm text-muted">
           No <Term k="game_script_card">game-script card</Term> is stored for
           this game yet.
         </p>
       )}
-      {canBuild && card !== undefined && (
+      {cards !== undefined && (
         <div>
           <div className="flex flex-wrap gap-2">
             {CARD_SIZES.map((size) => {
               const off = sizeOffWords(size, maxLegs);
+              const held = sizeIsHeld(size, cards);
               return (
                 <Button
                   key={size}
                   onClick={() => build(size)}
-                  disabled={building || off !== null}
+                  disabled={building || held || off !== null}
                   title={off ?? undefined}
                 >
-                  {building ? "Building…" : `${size} legs`}
+                  {building
+                    ? "Building…"
+                    : held
+                      ? `${size} legs · built`
+                      : `${size} legs`}
                 </Button>
               );
             })}
           </div>
           <p className="mt-2 max-w-[65ch] text-sm text-muted">
-            Pick how many legs the card has. Each extra leg is one more place
+            Pick how many legs a card has; you can build more than one size
+            for the same game, one tap each. Each extra leg is one more place
             a maker can charge, and the desk shows no combined chance.
           </p>
           {CARD_SIZES.map((size) => {
@@ -850,9 +890,22 @@ export function GameScriptParlays() {
       (day === "tomorrow" && key === tomorrowKey);
     return dayOk && (league === null || card.sport_key === league);
   };
-  const unbuilt = cards.filter((card) => matches(card) && card.status !== "built");
-  const shownCount = cards.filter(matches).length;
-  const hiddenCount = cards.length - shownCount;
+  // A game is listed as without a card only when no size of it is built,
+  // and once however many sizes were refused (one game, one row).
+  const builtGames = new Set(
+    cards.filter((card) => card.status === "built").map((card) => card.game_event_ticker),
+  );
+  const unbuilt = cards.filter(
+    (card, index) =>
+      matches(card) &&
+      !builtGames.has(card.game_event_ticker) &&
+      cards.findIndex((other) => other.game_event_ticker === card.game_event_ticker) === index,
+  );
+  // Counted in games, not cards: one game can hold a card per size.
+  const gamesOf = (list: CardData[]) =>
+    new Set(list.map((card) => card.game_event_ticker)).size;
+  const shownCount = gamesOf(cards.filter(matches));
+  const hiddenCount = gamesOf(cards) - shownCount;
   // The leagues on the list, in the order the list first meets them.
   const leaguesPresent = cards
     .map((card) => card.sport_key)
@@ -920,7 +973,7 @@ export function GameScriptParlays() {
           <ul className="mt-4 grid gap-4 md:grid-cols-2">
             {data.cards.map((card) =>
               matches(card) && card.status === "built" ? (
-                <li key={card.game_event_ticker}>
+                <li key={`${card.game_event_ticker}-${card.leg_count ?? "auto"}`}>
                   <GameScriptCard card={card} heading />
                 </li>
               ) : null,

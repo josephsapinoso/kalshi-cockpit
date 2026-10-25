@@ -3150,6 +3150,9 @@ CREATE TABLE IF NOT EXISTS game_script_cards (
                           ('triggered', 'not_found', 'unknown', 'refused_budget')),
     recheck_note      TEXT,
     recheck_source_json TEXT,
+    -- v68: the size Joe tapped (3, 5 or 8). One game holds one card per
+    -- size. NULL on the watcher's 2-3 leg card and every tap before v68.
+    leg_count         INTEGER,
     CHECK (status != 'built' OR (story IS NOT NULL AND legs_json IS NOT NULL)),
     CHECK (status = 'built' OR reason IS NOT NULL)
 );

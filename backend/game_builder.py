@@ -885,24 +885,27 @@ def attach_combo_to_card(
     """Stamp the minted combination onto the game's built card, when it IS it.
 
     `legs` is the minted set as `(market_ticker, side)`. The newest built card
-    for the game is stamped only if its legs are exactly that set, so a
-    hand-ticked mix of other legs never claims a card. Returns the card id or
+    for the game whose legs are exactly that set is stamped -- a game can hold
+    one card per size (v68), so the 3-leg card is found beside a newer 8 -- and
+    a hand-ticked mix of other legs never claims a card. Returns the card id or
     `None`. Kept so which cards Joe bet can be COUNTED later (ADR 0190); it is
     a record, never a rank, and a failure here must not lose the mint."""
     try:
-        row = conn.execute(
+        rows = conn.execute(
             "SELECT id, legs_json FROM game_script_cards "
             "WHERE game_event_ticker = ? AND status = 'built' "
-            "ORDER BY built_ms DESC, id DESC LIMIT 1",
+            "ORDER BY built_ms DESC, id DESC",
             (game_event_ticker,),
-        ).fetchone()
-        if row is None:
-            return None
+        ).fetchall()
+
         # Compared as the card is SHOWN: a win leg beside its own cover is
         # dropped on read (`drop_implied_legs`), so that is what Joe mints.
-        shown, _ = game_script_cards.drop_implied_legs(json.loads(row[1]))
-        card_legs = {(l["market_ticker"], l["side"]) for l in shown}
-        if card_legs != set(legs):
+        def shown_legs(raw):
+            shown, _ = game_script_cards.drop_implied_legs(json.loads(raw))
+            return {(l["market_ticker"], l["side"]) for l in shown}
+
+        row = next((r for r in rows if shown_legs(r[1]) == set(legs)), None)
+        if row is None:
             return None
         conn.execute(
             "UPDATE game_script_cards SET combo_ticker = ? WHERE id = ?",

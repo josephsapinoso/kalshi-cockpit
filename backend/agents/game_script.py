@@ -738,6 +738,7 @@ async def build_card(
             built_ms=now_ms,
             status=status,
             prompt_version=PROMPT_VERSION,
+            leg_count=leg_count,
             **kw,
         )
 
