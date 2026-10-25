@@ -139,6 +139,22 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-25 (hundred-and-third session) — one game holds a 3-, 5- and 8-leg card at once (ADR 0190 Amendment 6); live and demo on `c2350d6c`
+
+- **Joe's errand:** after an 8-leg build the size buttons vanished, and the build dedupe would have returned the 8 for any size. Schema v68 adds `game_script_cards.leg_count` (NULL = watcher card, no backfill); dedupe is per size; `/api/game-cards` serves the newest card of each size; the game page keeps the buttons up and disables only a built/skipped size; a mint stamps the matching card of any size. `tests/test_game_cards_one_per_size.py`, dedupe guard mutation-checked.
+- First push failed CI on three source-text pins of the old code (`test_parlays_page_is_compact.py`, `test_side_label_is_not_repeated.py`); moved to the new code in `c2350d6c`, CI green, deployed live then demo.
+- Not verified by a real tap: building a second size spends tokens (~540K on NFL), left to Joe.
+
+### Still open
+
+1. #355 — same-game vs cross-sport half only; still behind #331.
+2. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+3. #361 — 2026-10-27: credit projection after an NBA week, with `sweep-log` for 10-24/25; warn Joe before 20,000.
+4. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+5. #337 — 2027-01-15: look B for P1 only.
+6. #331 — 2026-11-01: the leg census by kind.
+7. #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-20 (hundred-and-second session) — nothing dated was due; #210 closed on its own condition; grid.py comment corrected; #302 frontier empty by finding; live and demo on `28e1638a`
 
 - **State verified:** main clean, no PRs, no lanes; live and demo `/api/health` `build.git_sha` = `28e1638a`; 0 open Dependabot alerts. Partner's call: no dated work is due (everything is 10-27 or later), NBA opening night tests the caps on its own, short session.
