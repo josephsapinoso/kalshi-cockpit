@@ -139,6 +139,24 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-25 (hundred-and-fourth session) — queue date-gated, nothing executed; #302 and #197 empty by finding; live and demo on `c2350d6c`
+
+- **State verified:** main clean at `499a3236`, nothing unpushed, no open PRs, CI green, 0 open Dependabot alerts, no lanes. Partner's call: nothing on the frontier is executable today, so end the session.
+- **#361 waits for its date.** Its NBA week is not complete until the 10:00Z budget boundary on 10-27, and Sunday 10-25 (NFL clusters plus NBA, the heaviest day in the window) was still being recorded. The next Saturday that could bind the 700 is 10-31, after the read. On 10-27 read `credits-day` 10-11..10-26, `sweep-log` 10-24/25 and `credits-by-sport --since 20261020`; `measurement-skeptic` audits it before it enters the record.
+- **#347 stays deferred.** Nothing Joe sees changes and each removal turns about 20 registry pins red. One fact-scout question for the next session that runs for another reason: is `/api/stream/quotes` (`routes.py:814`) reachable without a login on live? If it is, #347 gets promoted.
+- **Map #302 frontier empty by finding, second consecutive session (10-20, 10-25).** It refills only when Joe names work. **#197 has no open children.** Joe's next parlay-breadth ask becomes its next task. It is not closed, because his 2026-09-29 ask was open-ended.
+- Still not verified by a real tap: building a second card size (~540K tokens on NFL), left to Joe's use. This is not a question for him.
+
+### Still open
+
+1. #355 — same-game vs cross-sport half only; still behind #331.
+2. #360 — college basketball into scope when Kalshi lists it; check 2026-11-01.
+3. #361 — 2026-10-27: credit projection after an NBA week, with `sweep-log` for 10-24/25; warn Joe before 20,000.
+4. #347 — the backend no-op sweep and the routes nothing calls; deferred.
+5. #337 — 2027-01-15: look B for P1 only.
+6. #331 — 2026-11-01: the leg census by kind.
+7. #151, #197, #267 — carried forward unchanged.
+
 ## 2026-10-25 (hundred-and-third session) — one game holds a 3-, 5- and 8-leg card at once (ADR 0190 Amendment 6); live and demo on `c2350d6c`
 
 - **Joe's errand:** after an 8-leg build the size buttons vanished, and the build dedupe would have returned the 8 for any size. Schema v68 adds `game_script_cards.leg_count` (NULL = watcher card, no backfill); dedupe is per size; `/api/game-cards` serves the newest card of each size; the game page keeps the buttons up and disables only a built/skipped size; a mint stamps the matching card of any size. `tests/test_game_cards_one_per_size.py`, dedupe guard mutation-checked.
@@ -539,6 +557,8 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-25 (hundred-and-fourth session) — queue date-gated, nothing executed; #302 and #197 empty by finding; live and demo on `c2350d6c`
+- 2026-10-25 (hundred-and-third session) — one game holds a 3-, 5- and 8-leg card at once (ADR 0190 Amendment 6); live and demo on `c2350d6c`
 - 2026-10-20 (hundred-and-second session) — nothing dated due; #210 closed; grid.py combo-grid comment corrected; #302 empty by finding; live and demo on `28e1638a`
 - 2026-10-18 (hundred-and-first session) — live fee alarm diagnosed as a price-rounding artifact and fixed; #384 card-tap token hold (ADR 0190 Amd 5); #376/#380/#398 answered by Joe; live and demo on `976beacf`
 - 2026-10-18 (hundredth session) — Joe's errand: a `hedge_derisk` Discord push when the weakest leg of a multi-leg ticket is below 35% in play, naming the full and half hedge (#399, ADR 0078 Amendment 3); live and demo on `a573c013`
