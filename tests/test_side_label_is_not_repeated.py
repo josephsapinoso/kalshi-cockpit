@@ -80,4 +80,5 @@ def test_the_card_row_goes_through_the_check():
 
 def test_the_game_page_names_the_game_when_the_card_knows_it():
     source = CARD.read_text(encoding="utf-8")
-    assert "card?.game_title &&" in source
+    assert "cards?.find((card) => card.game_title)?.game_title" in source
+    assert "{title && <h2" in source

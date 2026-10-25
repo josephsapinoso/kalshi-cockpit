@@ -176,12 +176,15 @@ class TestTheFiltersCutTheListAndNeverOrderIt:
         src = _code(SCRIPTS)
         assert "data.cards.map((card) =>" in src
         assert "matches(card) && card.status" in src  # built grid
-        assert "matches(card) && card.status !== \"built\"" in src  # unbuilt list
+        # unbuilt list: a filter over the server's list, one row per game
+        # with no built card of any size (v68)
+        assert "!builtGames.has(card.game_event_ticker)" in src
 
     def test_the_number_of_hidden_games_is_said(self):
         src = _code(SCRIPTS)
         assert "hidden by this filter" in src
-        assert "hiddenCount = cards.length - shownCount" in src
+        # counted in games, not cards: one game can hold a card per size
+        assert "hiddenCount = gamesOf(cards) - shownCount" in src
 
 
 class TestEveryPickCarriesATime:
