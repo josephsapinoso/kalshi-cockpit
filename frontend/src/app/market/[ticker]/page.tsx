@@ -157,7 +157,10 @@ function QuoteStrip({
           Ask {detail.ask_display}
         </span>
         <span className="text-muted">
-          {" "}per YES <Term k="contract">contract</Term> · quote checked{" "}
+          {/* kalshi-platform, town hall review: the row can be either side;
+              "per YES" was wrong on every NO row. */}
+          {" "}per {detail.side === "no" ? "NO" : "YES"}{" "}
+          <Term k="contract">contract</Term> · quote checked{" "}
           {agoWord(age)} ago
         </span>
       </p>
@@ -299,6 +302,7 @@ export default function MarketPage() {
         )}
         {detail && !detail.team && totalPayClause(detail.side_outcome) && (
           <p className="mt-1 max-w-[65ch] text-sm text-muted">
+            {detail.side === "no" ? "The row below prices the NO side: " : ""}
             {totalPayClause(detail.side_outcome)}
           </p>
         )}

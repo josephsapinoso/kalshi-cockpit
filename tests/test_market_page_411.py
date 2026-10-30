@@ -109,3 +109,18 @@ class TestTotalSubject:
     def test_a_team_or_missing_outcome_gets_no_clause(self):
         assert self.clause("Pittsburgh Pirates") is None
         assert self.clause(None) is None
+
+
+class TestTheMarketPageNamesTheRowsSide:
+    """kalshi-platform's review: the page serves the newest row of EITHER
+    side, so "per YES" lied on a NO row, and a total's NO row said "this
+    contract pays if under" without saying which contract."""
+
+    def test_the_strip_names_the_rows_side(self):
+        assert 'per {detail.side === "no" ? "NO" : "YES"}' in PAGE
+        assert "per YES <Term" not in PAGE
+
+    def test_a_totals_no_row_says_it_prices_the_no_side(self):
+        clause = PAGE.index("{totalPayClause(detail.side_outcome)}\n")
+        before = PAGE[clause - 200:clause]
+        assert 'detail.side === "no" ? "The row below prices the NO side: "' in before

@@ -777,7 +777,9 @@ function TicketBody({
           <Stepper
             label="Max price (c)"
             value={
-              maxPriceTenths === null ? 0 : Math.round(maxPriceTenths / 10)
+              // Floor, not round: the shown ceiling never exceeds the one
+              // sent (kalshi-platform, town hall #415).
+              maxPriceTenths === null ? 0 : Math.floor(maxPriceTenths / 10)
             }
             onChange={(cents) => setMaxPriceTenths(cents * 10)}
             min={1}
