@@ -77,7 +77,17 @@ export default async function RefreshOddsPanel({
   filter = null,
   pathname = null,
   keep = null,
+  compact = false,
 }: {
+  /**
+   * #412: the urgent state (`refreshIsUrgent`) is the NORMAL state on a phone
+   * (72 of 100 live rows past 15 minutes) and the full panel pushed the first
+   * game ~1,600px down. A caller that sits the panel on top of the games
+   * passes `compact`: one status line and one button, with the per-league
+   * buttons and every caption inside a disclosure. What makes the panel
+   * urgent stays in `refreshUrgency.ts`, untouched.
+   */
+  compact?: boolean;
   /** A query fragment the clear-chip link carries, e.g. `view=cards` (#221). */
   keep?: string | null;
   /**
@@ -196,10 +206,8 @@ export default async function RefreshOddsPanel({
 
   const reading = readNextWindow(actionable);
 
-  return (
-    <section className="mt-6 rounded-xl border p-4">
-      <h2 className="text-sm font-bold">Refresh the odds</h2>
-
+  const statusLine = (
+    <>
       {/* First child, deliberately. This is the only sentence in the panel a
           reader needs before deciding whether to wait or to tap. */}
       {reading.kind === "due_now" || reading.kind === "scheduled" ? (
@@ -309,7 +317,11 @@ export default async function RefreshOddsPanel({
           {reading.sentence}
         </p>
       )}
+    </>
+  );
 
+  const detail = (
+    <>
       {league !== null && allLeaguesHref !== null && (
         // The cut is stated on the card itself, not borrowed from the bar
         // above it, so a reader scrolled past the bar still knows this is
@@ -398,7 +410,9 @@ export default async function RefreshOddsPanel({
       {/* Demoted from the top of the panel on 2026-08-28. A caption, not a
           headline: whether *this* tap will be refused is answered by whether
           the button is disabled and by the verbatim refusal it returns. */}
-      <p className="mt-4 max-w-prose text-xs text-muted">
+      <div className="mt-4 border-t pt-4">
+      <h3 className="text-sm font-semibold">All leagues</h3>
+      <p className="mt-2 max-w-prose text-xs text-muted">
         {data.note} Taps have reserved {data.manual_credits_spent_today} of{" "}
         {data.manual_daily_credits} credits set aside for them today, kept apart
         from the scheduled windows — those are what build the record. The whole
@@ -407,10 +421,33 @@ export default async function RefreshOddsPanel({
         taps, because the books&apos; own scrape is slower than that and a
         second call would buy the same numbers at the same age.
       </p>
+      </div>
 
       <p className="mt-2 text-xs text-muted">
         Kickoffs in {DISPLAY_TIME_ZONE}.
       </p>
+    </>
+  );
+
+  return (
+    <section className="mt-6 rounded-xl border p-4">
+      <h2 className="text-sm font-bold">Refresh the odds</h2>
+
+      {statusLine}
+
+      {compact ? (
+        // #412: one line (above) and one button (this summary). The
+        // per-league buttons, the shared sentence and the credit caption
+        // are all inside, so the first game is not pushed down by them.
+        <details className="mt-2">
+          <summary className="inline-block cursor-pointer rounded-lg border px-3 py-2 text-sm font-semibold">
+            Refresh prices…
+          </summary>
+          {detail}
+        </details>
+      ) : (
+        detail
+      )}
     </section>
   );
 }
