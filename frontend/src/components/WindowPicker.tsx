@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Chip from "@/components/Chip";
 
 import type { ListFilter, ParlayWindow } from "@/lib/api";
 import { listFilterQuery } from "@/lib/api";
@@ -61,18 +61,9 @@ export default function WindowPicker({
         {window.choices.map((choice) => {
           const active = choice.key === window.key;
           return (
-            <Link
-              key={choice.key}
-              href={href(choice.key)}
-              aria-current={active ? "true" : undefined}
-              className={`min-h-11 rounded border px-3 py-2 text-sm font-semibold ${
-                active
-                  ? "border-foreground text-foreground"
-                  : "border-border text-muted"
-              }`}
-            >
+            <Chip key={choice.key} href={href(choice.key)} active={active}>
               {LABELS[choice.key] ?? choice.key}
-            </Link>
+            </Chip>
           );
         })}
       </div>

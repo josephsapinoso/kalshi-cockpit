@@ -1,5 +1,5 @@
 import Link from "next/link";
-
+import Chip from "@/components/Chip";
 import { listFilterQuery, type ListFilter } from "@/lib/api";
 import { withKept } from "@/lib/parlaysView";
 import { leagueLabel } from "@/lib/leagueLabel";
@@ -208,30 +208,5 @@ function Group({
       </span>
       {children}
     </div>
-  );
-}
-
-function Chip({
-  href,
-  active,
-  children,
-}: {
-  href: string;
-  active: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      prefetch={false}
-      aria-current={active ? "true" : undefined}
-      className={`inline-flex min-h-[36px] items-center rounded-full border px-3 text-sm transition-colors ${
-        active
-          ? "border-foreground bg-foreground text-background"
-          : "border-border text-muted hover:border-border-strong hover:text-foreground"
-      }`}
-    >
-      {children}
-    </Link>
   );
 }

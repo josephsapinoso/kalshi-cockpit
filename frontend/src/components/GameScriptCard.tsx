@@ -19,6 +19,7 @@ import {
   type LegVerdictInput,
   type LegVerdictsResult,
 } from "@/lib/api";
+import Chip from "@/components/Chip";
 import AskTheMarket from "@/components/AskTheMarket";
 import LegVerdicts from "@/components/LegVerdicts";
 import { RestChip } from "@/components/ParlayCards";
@@ -810,13 +811,13 @@ function ListFilters({
         className="flex flex-wrap items-center gap-1.5"
       >
         {days.map((choice) => (
-          <FilterChip
+          <Chip
             key={choice.key}
             active={day === choice.key}
             onClick={() => onDay(choice.key)}
           >
             {choice.label}
-          </FilterChip>
+          </Chip>
         ))}
       </div>
       {leagues.length > 1 && (
@@ -825,46 +826,21 @@ function ListFilters({
           aria-label="League"
           className="flex flex-wrap items-center gap-1.5"
         >
-          <FilterChip active={league === null} onClick={() => onLeague(null)}>
+          <Chip active={league === null} onClick={() => onLeague(null)}>
             All leagues
-          </FilterChip>
+          </Chip>
           {leagues.map((key) => (
-            <FilterChip
+            <Chip
               key={key}
               active={league === key}
               onClick={() => onLeague(key)}
             >
               {leagueLabel(key)}
-            </FilterChip>
+            </Chip>
           ))}
         </div>
       )}
     </div>
-  );
-}
-
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`inline-flex min-h-[40px] items-center rounded-full border px-3 text-sm transition-colors ${
-        active
-          ? "border-foreground font-semibold text-foreground"
-          : "border-border text-muted"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -929,7 +905,7 @@ export function GameScriptParlays() {
     <section aria-label="Game-script parlays" className="mt-4">
       <h2 className="display text-xl sm:text-2xl">Game-script parlays</h2>
       <p className="mt-2 max-w-[65ch] text-sm leading-relaxed text-muted">
-        One short story per game with two or three{" "}
+        One short story per game with 3, 5 or 8{" "}
         <Term k="same_game_parlay">same-game</Term> picks that fit it, in
         kickoff order. Each pick shows Kalshi&rsquo;s own ask for that pick
         alone; the makers&rsquo; quote is the only price for the whole ticket.
