@@ -16,6 +16,16 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-30 - A lane that rebuilds a layout can drop a render and keep its import; every lane test stays green
+
+From the hundred-and-sixth session (UI town hall, #407).
+
+- **Lane B rebuilt the Games row (#409) and the per-row desk-notes pill disappeared.** `CrewBubble` was still imported, so tsc stayed quiet. Its label test (`"desk notes"` in `CrewBubble.tsx`) stayed green because it reads the component, not the page. 1,799 lane tests passed. measurement-skeptic caught the loss while auditing *copy*: a sentence pointed at a number that was no longer on the screen.
+- **Lane copy that each lane checked against its own ticket still came back OVERSTATED (13 FIX).** The ticket sentences were drafted by the town hall, and nobody had re-read them against the record. "861 / 1,000" sat beside a 300 that counts games, and "found no signal" stood for UNRESOLVED.
+- **The rule:**
+  - After merging a lane that restructures JSX, grep the file for every component it imports and confirm each is still rendered: `grep -c "<Name"` must be at least 1 per import.
+  - Run measurement-skeptic over the merged copy diff before any deploy, even when the sentences came from a review. A sentence carried verbatim from a ticket is still a claim.
+
 ## 2026-10-30 - Adding a value to an allow-list breaks every test that used it as the "not allowed" example
 
 From the hundred-and-fifth session (CI red after `basketball_ncaab` entered `IN_SCOPE_LEAGUES`).

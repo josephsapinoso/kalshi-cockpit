@@ -139,6 +139,39 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`
+
+- **How it ran.** Joe asked for a town hall to "review the project so far … improve the ui".
+  - Partner chaired five seats (sharp-bettor, runtime-realist, measurement-skeptic, kalshi-platform, a UX guest) over two rounds.
+  - Inputs: demo `check_mobile.py --shots` at 390/1440 plus bounded authed live reads.
+  - The ranking came back as 26 findings. Epic **#407** (under #224).
+- **Joe answered five with option buttons, all (A):** #402 (drop BETTABLE), #403 (dim untrusted fair), #404 (sharp-book box only when not all), #405 (honest Open label), #406 ("worst case (estimate)"). Opened under #302 and closed with his letter. He also approved build + merge + live deploy for the batch.
+- **Built, merged and live:**
+  - #408 Picks carry their refusal code.
+  - #409 Games row: oldest book line age, ask in full ink, untrusted fair dimmed, no BETTABLE.
+  - #410 record-truth copy (SignalStrip frozen → UNRESOLVED, Playbook, fee bar, glossary).
+  - #411 Market page (exact ask, the row's side named, a no-row explanation).
+  - #412 compact refresh panel, passed on the urgent Games render only.
+  - #413 Your bets (range count, one Net, honest Open).
+  - #414 one Chip, Nav lights Games on /game, shell widths.
+  - #415 main lane (gate fee copy, quote-gone copy, exact ticket ceiling).
+- **Review before deploy:**
+  - kalshi-platform: MERGE WITH FIXES, applied. "per YES" was wrong on every NO row; a total's NO row names its side; the ticket shows its ceiling with floor, not round.
+  - measurement-skeptic: OVERSTATED, 13 FIX, all applied. Among them: 861/1,000 are groups of bets (889 games), not games; the Games note said every figure was scored; "0 at Kalshi" before any poll; the fee line ignored that combos were measured at the full rate.
+  - The audit also caught lane B dropping the per-row desk-notes pill, now restored.
+- **Verification.** Full suite 10,427 passed, ruff clean, CI 41125427471 green, deploys 41126470310 (live) and 41126713307 (demo). Every screen re-shot at 390/1440: no overflow, changes visible.
+- **Not met as specified:**
+  - The xl Games row is two lines, not one: actions wrap under the prices at 1440.
+  - Bet and "Build a same-game parlay" still stack at 390.
+  - The Parlays jump chips are still chips (the GameLegs.tsx file sat outside every lane; noted on #414).
+- **Process.** All seven lanes died at the 5-hour usage limit and were resumed by SendMessage. Five came back with their worktrees gone and rebuilt from the session-start commit. Two lanes kept re-sending their final report while "waiting on background work", so I stopped them with TaskStop. Lane D never finished its grep-set run; main ran it after the merge and it found 5 stale pins.
+
+### Still open (adds to the list below)
+
+1. #416 — signal_test.py still carries the 713 floor; Amendment 3 made it 861 (8 fixtures to re-anchor).
+2. #417 — an HTTP 408 on a quote accept is an UNKNOWN, not a decline.
+3. #418 — totals: YES-is-Over is assumed in runner.py, never checked against a capture.
+
 ## 2026-10-30 (hundred-and-fifth session) — #361 read: busiest day 546, daily cap 700 → 800 on Joe's word; men's college basketball in scope (#360); live and demo on `4afdf974`
 
 - **The queue was not date-gated.** #361 had been due since 10-27, and Kalshi had already listed men's college basketball (`KXNCAAMBGAME`, competition `"College Basketball (M)"`, 155 events, 133 on 11-02, all `exchange_index` 3). Partner found the listing; main re-verified it on the public API.
@@ -585,6 +618,8 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`
+- 2026-10-30 (hundred-and-fifth session) — #361 read: busiest day 546, daily cap 700 → 800 on Joe's word; men's college basketball in scope (#360); live and demo on `4afdf974`
 - 2026-10-25 (hundred-and-fourth session) — queue date-gated, nothing executed; #302 and #197 empty by finding; live and demo on `c2350d6c`
 - 2026-10-25 (hundred-and-third session) — one game holds a 3-, 5- and 8-leg card at once (ADR 0190 Amendment 6); live and demo on `c2350d6c`
 - 2026-10-20 (hundred-and-second session) — nothing dated due; #210 closed; grid.py combo-grid comment corrected; #302 empty by finding; live and demo on `28e1638a`
