@@ -49,6 +49,17 @@ import type { TrustScore } from "@/lib/api";
 /** `core/trust.py` `_age_check` names. */
 const AGE_CHECKS = new Set(["consensus_fresh", "quote_fresh"]);
 
+/**
+ * The server writes ages in seconds ("1589s old"); a reader wants minutes
+ * (#411). Past two minutes only, so "20s old" stays as it is.
+ */
+export function ageInMinutes(detail: string): string {
+  return detail.replace(/(\d+)s old/g, (whole, s) => {
+    const seconds = Number(s);
+    return seconds >= 120 ? `${Math.round(seconds / 60)} min old` : whole;
+  });
+}
+
 export default function TrustNote({
   trust,
   size = "compact",
@@ -128,7 +139,7 @@ export default function TrustNote({
       </span>
       {failures.length > 0 && (
         <span className="block">
-          {failures.map((f) => f.detail).join("; ")}.
+          {failures.map((f) => ageInMinutes(f.detail)).join("; ")}.
         </span>
       )}
       {failed.length === 0 && unknown === 0 && (
