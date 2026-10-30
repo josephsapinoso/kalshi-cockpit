@@ -282,16 +282,16 @@ primary_region = "ord"
   # variable means the default applies, not that the feature is off.
   #
   # **The interaction with the monthly cap, stated because it is not obvious.**
-  # TODAY: **700 x 31 = 21,700, which exceeds ODDS_MONTHLY_CREDIT_BUDGET of
-  # 18,000** -- and 18,000 is itself under the plan's 20,000. (This paragraph
+  # TODAY: **800 x 31 = 24,800, which exceeds ODDS_MONTHLY_CREDIT_BUDGET of
+  # 18,000** (700 x 31 = 21,700 until 2026-10-30) -- and 18,000 is itself under the plan's 20,000. (This paragraph
   # read "600 x 31 = 18,600 ... exceeds 13,000" until 2026-09-15; both caps
   # were raised on 2026-08-23 and the sentence did not follow. The shape of
   # the conclusion is unchanged, which is exactly why nobody noticed.) The
   # daily cap therefore no longer bounds the month by arithmetic. That is fine
   # and is why the monthly cap exists as a separate guard -- but if the daily
-  # ceiling is ever actually reached day after day, **18,000 / 700 means the
-  # month runs out around day 26** and every sweep stops. (It read "day 21",
-  # which is 13,000 / 600.) `api_credits` is where that would show first.
+  # ceiling is ever actually reached day after day, **18,000 / 800 means the
+  # month runs out around day 22** and every sweep stops. (It read "day 26"
+  # at 700 and "day 21", which is 13,000 / 600.) `api_credits` is where that would show first.
   #
   # The "expected spend (~5,000-7,500/month)" that sat in the sentence above
   # is **struck, not re-derived**: it was a forecast at a two-market,
@@ -313,7 +313,15 @@ primary_region = "ord"
   # one kickoff-slot sweep or odds refresh stop every sport for the day. The
   # arithmetic and the four-sport warning live beside ODDS_DESK_WINDOW_UTC --
   # which is UNSET now, so that 576 is history twice over.
-  ODDS_DAILY_CREDIT_BUDGET = "700"
+  #
+  # **Raised 700 -> 800 on 2026-10-30, Joe's answer to #361**, ahead of men's
+  # college basketball entering scope (#360). The measured busiest day was 546
+  # (Sat 10-24), and the cap has never bound. The projection for a November
+  # Saturday with NCAAB is 606-726, and when 700 binds every sport goes dark
+  # until 10:00Z. The 18,000 monthly ceiling below still bounds the month
+  # (November projects at 13,300-16,900):
+  # `docs/measurements/2026-10-30-odds-credits-after-an-nba-week.md`.
+  ODDS_DAILY_CREDIT_BUDGET = "800"
 
   # Our own monthly ceiling, below the plan's 20,000. The daily cap bounds a
   # month only if you multiply it out, and it cannot bound a caller that spends
@@ -373,7 +381,7 @@ primary_region = "ord"
   #   idle floor, 4 sports        ~288/day    24h x 4 sports x 3 credits
   #   attention, capped           <=324/day   ODDS_ATTENTION_DAILY_CREDITS
   #   kickoff windows             UNCAPPED    clusters x 7 calls x 3 credits
-  #   the only real ceiling        700/day    ODDS_DAILY_CREDIT_BUDGET
+  #   the only real ceiling        800/day    ODDS_DAILY_CREDIT_BUDGET (700 until 2026-10-30)
   #
   # **The per-call figure is 3 and it has moved twice.** This table read 4
   # from 2026-09-06; ADR 0152 added `totals` and made it 6 without touching
@@ -427,7 +435,7 @@ primary_region = "ord"
   # this is what does. A guard a browser bug can defeat must not be the only
   # thing between a design and its worst case.
   #
-  # 324 of the 700 daily budget (300 until 2026-09-30). Past it the desk stops re-buying at the
+  # 324 of the 800 daily budget (300 until 2026-09-30; the budget was 700 until 2026-10-30). Past it the desk stops re-buying at the
   # attended cadence and **keeps its hourly floor**, so the slate never goes
   # dark -- which is what makes a cap this low safe. Read
   # `ondemand.DEFAULT_MANUAL_DAILY_CREDITS`'s comment before changing it: a

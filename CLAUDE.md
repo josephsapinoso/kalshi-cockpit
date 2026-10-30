@@ -269,16 +269,16 @@ re-derive again the day the book list or the market list moves.
     idle floor, 4 sports         ~288/day    24h x 4 sports x 3 credits
     attention, capped            <=324/day   ODDS_ATTENTION_DAILY_CREDITS (300 until 2026-09-30, #237)
     kickoff windows              UNCAPPED    clusters x 7 calls x 3 credits
-    the only real ceiling         700/day    ODDS_DAILY_CREDIT_BUDGET
+    the only real ceiling         800/day    ODDS_DAILY_CREDIT_BUDGET (700 until 2026-10-30, #361)
 
 **The day is safe by the cap, not by construction.** The kickoff-window loop
 (its only gate is `credits_left`, `backend/odds/timing.py:2381`) was 67% of
-September's spend. When the 700 binds, `decide_sweeps` returns `fire=()` and
+September's spend. When the 800 binds, `decide_sweeps` returns `fire=()` and
 **every** sport stops until the next 10:00Z boundary. A full 60-minute window
 is **seven** calls (21 credits a cluster at 3); an NFL Sunday plans 3 clusters,
 the season's worst 4 (`tests/test_sweep_timing.py` pins the seven).
 
-**The 700 is not spare headroom — it is a cap that truncates the day, and one
+**The 800 is not spare headroom — it is a cap that truncates the day, and one
 flag can bind it.** The kickoff loop's projection carries a `prop_tail` term,
 `prop_cost_per_event × slot.games_covered` (`backend/odds/timing.py:2168`),
 which its own comment calls a 20× multiplier that can empty the budget. It is

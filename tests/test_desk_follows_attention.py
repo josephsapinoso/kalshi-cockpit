@@ -701,11 +701,14 @@ class TestAttentionAddsToTheFloorRatherThanReplacingIt:
 
         capped_terms = floor_ceiling + slice_cap
         assert capped_terms <= daily_cap
-        # The tap reserve is a sub-ceiling *inside* the 700 rather than a
+        # The tap reserve is a sub-ceiling *inside* the daily cap rather than a
         # carve-out from it (`ondemand.DEFAULT_MANUAL_DAILY_CREDITS`), so it is
-        # not subtracted here -- but the day cannot fund both in full, and
-        # `credits_left` is what refuses the loser.
-        assert capped_terms + ondemand.DEFAULT_MANUAL_DAILY_CREDITS > daily_cap
+        # not subtracted here. At 700 the day could not fund both in full
+        # (288 + 324 + 150 = 762), and this line asserted `>`. Since the
+        # 2026-10-30 raise to 800 (#361) it can, at the four sports this test
+        # models -- and the kickoff term below is what `credits_left` still
+        # has to refuse.
+        assert capped_terms + ondemand.DEFAULT_MANUAL_DAILY_CREDITS <= daily_cap
 
         # **`capped_terms` is still not a worst case, and the reason CHANGED.**
         # At 6 credits a call, one NFL Sunday's kickoff demand exceeded the gap
