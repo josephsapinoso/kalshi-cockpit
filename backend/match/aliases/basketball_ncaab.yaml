@@ -1,0 +1,17 @@
+# Men's college basketball team-name overrides.
+#
+# See americanfootball_nfl.yaml for the rules. Derived 2026-10-30 by
+# `scripts/capture_team_names.py --league ncaab` against 155 Kalshi
+# `KXNCAAMBGAME` events and ONLY 7 Odds API fixtures (the books had not posted
+# the 11-02/03 slate yet). Six of the seven linked with no aliases; this is the
+# one that did not. It rests on n = 7 and MUST be re-derived on the full
+# 11-02/03 slate -- a team absent from this file is not proof it needs none.
+#
+# Format:  <kalshi name>: <sportsbook name>
+# The VALUE must be the book's full string including the mascot.
+
+teams:
+  # Parenthesised disambiguation leaves a stray token: "Miami (FL)" becomes
+  # "miami fl", and "fl" is not a prefix of "hurricanes". Same entry, same
+  # reason, as americanfootball_ncaaf.yaml.
+  Miami (FL): Miami Hurricanes

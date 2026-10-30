@@ -337,6 +337,20 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "GET /series?category=Sports for titles, then GET /events per "
             "KXNFL series, kept to one fixture's event.",
     ),
+    "ncaab_names_kalshi.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "status"),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#360): "
+            "the Kalshi KXNCAAMBGAME page walk, names and kickoffs only.",
+    ),
+    "ncaab_names_books.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("sport_key",),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#360): "
+            "the Odds API /events fixture list for basketball_ncaab.",
+    ),
     "events_nhl_same_game.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("series_ticker", "status"),
@@ -758,6 +772,8 @@ UPGRADED_WRITERS: dict[str, tuple[str, ...]] = {
         "nfl_names_books.json",
         "ncaaf_names_kalshi.json",
         "ncaaf_names_books.json",
+        "ncaab_names_kalshi.json",
+        "ncaab_names_books.json",
     ),
 }
 

@@ -134,6 +134,7 @@ ODDS_EVENTS = "https://api.the-odds-api.com/v4/sports/{sport_key}/events"
 LEAGUES: dict[str, tuple[str, str, str]] = {
     "ncaaf": ("KXNCAAFGAME", "americanfootball_ncaaf", "ncaaf_names"),
     "nfl": ("KXNFLGAME", "americanfootball_nfl", "nfl_names"),
+    "ncaab": ("KXNCAAMBGAME", "basketball_ncaab", "ncaab_names"),
 }
 
 
@@ -481,6 +482,7 @@ def main() -> int:
                     "Reduced capture: team names and kickoff only, for "
                     "alias resolution. No prices, no market payloads."
                 ),
+                "endpoint": KALSHI_EVENTS,
                 "request": request_envelope(
                     method="GET",
                     endpoint=KALSHI_EVENTS,
@@ -519,6 +521,7 @@ def main() -> int:
                 # blanked -- `request_envelope` refuses it by name, because
                 # writing down every parameter you sent is how the Odds API key
                 # leaked once (`tasks/lessons.md`).
+                "endpoint": ODDS_EVENTS,
                 "request": request_envelope(
                     method="GET",
                     endpoint=ODDS_EVENTS,

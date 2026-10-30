@@ -113,6 +113,8 @@ ESPN_SCOREBOARD_PATHS: dict[str, str] = {
     "basketball_nba": "basketball/nba",
     "basketball_wnba": "basketball/wnba",
     "icehockey_nhl": "hockey/nhl",
+    # 200 with events on 2026-10-30 (#360).
+    "basketball_ncaab": "basketball/mens-college-basketball",
 }
 
 # What one `/odds` sweep costs, computed by the same function the runner passes

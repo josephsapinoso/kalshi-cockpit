@@ -1,0 +1,58 @@
+{
+  "captured_note": "Reduced capture: fixture id, kickoff and the two team names as the books spell them. No odds.",
+  "endpoint": "https://api.the-odds-api.com/v4/sports/{sport_key}/events",
+  "fixtures": [
+    {
+      "away_team": "Villanova Wildcats",
+      "commence_ms": 1793543400000,
+      "home_team": "Notre Dame Fighting Irish",
+      "id": "5bee3fb00be225402b2d2d7842398207"
+    },
+    {
+      "away_team": "High Point Panthers",
+      "commence_ms": 1793602800000,
+      "home_team": "Liberty Flames",
+      "id": "d961840cf470389306fa79cf82f5d46c"
+    },
+    {
+      "away_team": "Florida Gators",
+      "commence_ms": 1793660400000,
+      "home_team": "Miami Hurricanes",
+      "id": "112a0b847e8a6f5f1cd2664986697d60"
+    },
+    {
+      "away_team": "Memphis Tigers",
+      "commence_ms": 1793660400000,
+      "home_team": "Iowa State Cyclones",
+      "id": "509ce59dbf5e07bb4acf73cd8ecc4d3b"
+    },
+    {
+      "away_team": "Purdue Boilermakers",
+      "commence_ms": 1793665800000,
+      "home_team": "Gonzaga Bulldogs",
+      "id": "104fd9502f231c9207ee53d73289d028"
+    },
+    {
+      "away_team": "Ohio State Buckeyes",
+      "commence_ms": 1793667600000,
+      "home_team": "BYU Cougars",
+      "id": "cf863e45a3252d509e366d465e7be8c9"
+    },
+    {
+      "away_team": "UCLA Bruins",
+      "commence_ms": 1793674800000,
+      "home_team": "Arizona Wildcats",
+      "id": "0f97cebc3f20e441be9633bb8ecccc4f"
+    }
+  ],
+  "request": {
+    "endpoint": "https://api.the-odds-api.com/v4/sports/{sport_key}/events",
+    "method": "GET",
+    "note": "--league ncaab. The credential parameter is omitted from this record, not blanked.",
+    "params": {
+      "markets": "none -- no odds are requested and none are stored",
+      "regions": "none -- this endpoint returns fixtures, not odds",
+      "sport_key": "basketball_ncaab"
+    }
+  }
+}
