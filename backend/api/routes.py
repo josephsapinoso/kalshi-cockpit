@@ -1953,8 +1953,8 @@ def create_app(
             # #344); the meaning -- no column here is added up into a pick --
             # is now said in those words.
             "note": (
-                "None of these figures is added up into a pick. The "
-                "registered scoring of them against outcomes ended "
+                "None of these figures is added up into a pick. They were "
+                "scored against outcomes under a registration that ended "
                 "UNRESOLVED on 2026-10-01: it found no signal and did not "
                 "rule one out."
             ),
