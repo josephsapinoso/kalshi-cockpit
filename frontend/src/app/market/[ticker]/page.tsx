@@ -43,7 +43,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import {
-  DISPLAY_TIME_ZONE,
   fetchMarketCandles,
   fetchMarketDetail,
   type MarketCandles,
@@ -60,27 +59,19 @@ import SkepticPanel from "@/components/SkepticPanel";
 import Term from "@/components/Term";
 import TonightStrip from "@/components/TonightStrip";
 import TrustNote from "@/components/TrustNote";
+import { formatKickoff } from "@/lib/format";
 import { gameEventOf } from "@/lib/gameEvent";
 import { SHELL_WIDTH } from "@/lib/shell";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
 import { leagueLabel } from "@/lib/leagueLabel";
 import { quoteVisibility } from "@/lib/quoteVisibility";
+import { totalPayClause } from "@/lib/rowSubject";
 
 const RANGES = [
   { key: "1d", label: "Today" },
   { key: "all", label: "All" },
 ] as const;
 type Range = (typeof RANGES)[number]["key"];
-
-function clock(ms: number): string {
-  return new Date(ms).toLocaleString("en-US", {
-    timeZone: DISPLAY_TIME_ZONE,
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function agoWord(ms: number): string {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
@@ -102,8 +93,8 @@ function statusLine(detail: MarketDetail, now: number): string {
   }
   if (detail.commence_ms !== null) {
     return detail.commence_ms > now
-      ? `Starts ${clock(detail.commence_ms)}`
-      : `Started ${clock(detail.commence_ms)} — likely in play or finished.`;
+      ? `Starts ${formatKickoff(detail.commence_ms)}`
+      : `Started ${formatKickoff(detail.commence_ms)} — likely in play or finished.`;
   }
   return "Start time unknown — no linked sportsbook fixture.";
 }
@@ -163,7 +154,7 @@ function QuoteStrip({
     <div className="mt-3 rounded-xl border px-3 py-2 text-sm">
       <p className="max-w-[65ch]">
         <span className="font-semibold tabular">
-          Ask ${detail.ask_dollars.toFixed(2)}
+          Ask {detail.ask_display}
         </span>
         <span className="text-muted">
           {" "}per YES <Term k="contract">contract</Term> · quote checked{" "}
@@ -248,7 +239,6 @@ export default function MarketPage() {
   // nothing-found, which are opposite claims — one asks for patience, the
   // other answers the question.
   const stillLoading = loading || detailLoading;
-  const nothingFound = !stillLoading && detail === null && data === null;
   const matchup =
     detail?.home_team && detail?.away_team
       ? `${detail.away_team} @ ${detail.home_team}`
@@ -301,10 +291,15 @@ export default function MarketPage() {
           {league && <span>{league} · </span>}
           {detail ? statusLine(detail, now) : ""}
         </p>
-        {nothingFound && (
+        {!stillLoading && detail === null && (
           <p className="mt-2 max-w-[65ch] text-sm text-muted">
-            Nothing is recorded here for this ticker — the recorder never
-            priced it, which is not the same as the market not existing.
+            The desk doesn&rsquo;t price this market, so there&rsquo;s no page
+            for it here. It may still trade on Kalshi.
+          </p>
+        )}
+        {detail && !detail.team && totalPayClause(detail.side_outcome) && (
+          <p className="mt-1 max-w-[65ch] text-sm text-muted">
+            {totalPayClause(detail.side_outcome)}
           </p>
         )}
         {/* The escape hatch this app never had (A7): scheme verified in a
@@ -423,8 +418,12 @@ export default function MarketPage() {
       {/* Consensus and Skeptic are free — always rendered, no model, no
           spend. A ticker the runner never priced renders their honest empty
           states rather than dropping the sections. */}
-      {detail && <ConsensusPanel detail={detail} />}
-      {detail && <SkepticPanel detail={detail} />}
+      {detail && (
+        <div className="xl:grid xl:grid-cols-2 xl:gap-x-6">
+          <ConsensusPanel detail={detail} />
+          <SkepticPanel detail={detail} />
+        </div>
+      )}
       {!detail && !detailLoading && (
         <section className="mt-6 rounded-2xl border border-edge bg-card p-4 sm:p-6">
           <p className="max-w-[65ch] text-sm text-muted">

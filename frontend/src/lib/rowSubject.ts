@@ -78,3 +78,22 @@ export function rowSubject(rec: {
   }
   return { name: rec.ticker, how: null };
 }
+
+/**
+ * What a team-less total pays on (#411, KP1). A total has no team, so the
+ * market page's "pays $1 if the {team} win" never rendered for it; and if it
+ * had, "Over 8.5 ... win" would be the wrong verb. Returns null for anything
+ * that is not an Over or an Under, rather than guessing a clause.
+ */
+export function totalPayClause(
+  outcome: string | null | undefined,
+): string | null {
+  const word = clean(outcome)?.toLowerCase() ?? "";
+  if (word.startsWith("over")) {
+    return "This contract pays $1 if the total finishes over the line.";
+  }
+  if (word.startsWith("under")) {
+    return "This contract pays $1 if the total finishes under the line.";
+  }
+  return null;
+}
