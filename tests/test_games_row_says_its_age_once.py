@@ -137,8 +137,9 @@ class TestGamesRowSaysItsAgeOnce:
     def test_other_callers_still_print_the_age_checks(self, built):
         # Positive control: the default (no prop) is unchanged.
         text = _render(built, _trust(AGE_Q, AGE_C, BOOKS, OK))
-        assert "Kalshi quote 357s old, limit 30s" in text
-        assert "sportsbook consensus 400s old, limit 120s" in text
+        # TrustNote prints ages in minutes since town hall #411.
+        assert "Kalshi quote 6 min old, limit 30s" in text
+        assert "sportsbook consensus 7 min old, limit 120s" in text
 
     def test_age_only_failure_renders_no_empty_or_misleading_line(self, built):
         text = _render(built, _trust(AGE_Q, OK), hideAgeChecks=True)
@@ -147,7 +148,7 @@ class TestGamesRowSaysItsAgeOnce:
         assert "Every check" not in text
 
     def test_age_only_failure_without_the_prop_still_prints(self, built):
-        assert "357s old" in _render(built, _trust(AGE_Q, OK))
+        assert "6 min old" in _render(built, _trust(AGE_Q, OK))
 
     def test_clean_row_still_says_everything_passed(self, built):
         assert "Every check" in _render(built, _trust(OK), hideAgeChecks=True)

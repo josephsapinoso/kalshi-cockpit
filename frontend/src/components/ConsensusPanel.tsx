@@ -123,8 +123,9 @@ export default function ConsensusPanel({ detail }: { detail: MarketDetail }) {
         books have already <Term k="priced_in">priced them in</Term> to this
         line, and Kalshi usually prices within a couple of cents of those
         books. That is why this tool computes none of them itself:
-        recomputing what the line already contains adds noise, not
-        information — which is what two baseball prop models here found. What can matter is news
+        recomputing what the line already contains
+        adds noise, not information — which is what two baseball prop models
+        here found. What can matter is news
         newer than the line, and hunting that is the scouts&rsquo; whole job.
       </p>
     </section>

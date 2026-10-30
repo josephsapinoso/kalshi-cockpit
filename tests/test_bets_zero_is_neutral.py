@@ -39,9 +39,11 @@ class TestAZeroNetHasNoSignAndNoPositiveInk:
         # all four sites go through the helpers; none keeps the old binary
         assert '< 0 ? "text-negative" : "text-positive"' not in PAGE
         assert 'bet.net_tenths < 0' not in PAGE
+        # `record.totals.net_tenths` left with the strip's Net tile (town
+        # hall #413: Net was printed twice); the three sites left still print it.
+        assert "record.totals.net_tenths" not in PAGE
         for tenths in (
             "totals.net_tenths",
-            "record.totals.net_tenths",
             "block.net_tenths",
             "bet.net_tenths",
         ):

@@ -410,6 +410,8 @@ class TestTheRoute:
             # No settlement, no first day. None -- a 1970 date is a claim
             # about history the mirror does not have.
             "first_settled_ms": None,
+            # Town hall #413: how many ranges the page shows; none here.
+            "range_count": 0,
             "sections": {"single": empty_section, "combo": empty_section},
             "clv_coverage": {
                 "population": "single",
