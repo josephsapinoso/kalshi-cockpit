@@ -138,8 +138,9 @@ class TestNhlAndCollegeBasketballCaptured:
     `events_nhl_same_game.json` is one real fixture's GAME, SPREAD and TOTAL
     events. `series_college_basketball.json` is the series catalogue slice: the
     college season was closed on 2026-09-30, so it has series NAMES but no
-    event tickers (its `open_event_counts` are all 0) -- the prefix test below
-    therefore builds a ticker from a captured series name, not a captured event.
+    event tickers (its `open_event_counts` are all 0). `events_ncaamb_game.json`
+    (2026-10-30, #267) is one real KXNCAAMBGAME event; the prefix test below
+    takes its fixture segment from it and builds the sibling series from that.
     """
 
     @staticmethod
@@ -179,7 +180,13 @@ class TestNhlAndCollegeBasketballCaptured:
             (FIXTURES / "series_college_basketball.json").read_text(encoding="utf-8")
         )
         names = {s["ticker"]: s["title"] for s in doc["series"]}
-        seg = "26NOV05DUKEUNC"
+        # #267: the segment is a REAL captured event's (KXNCAAMBGAME-26NOV01NDVILL),
+        # not a synthetic one.
+        captured = json.loads(
+            (FIXTURES / "events_ncaamb_game.json").read_text(encoding="utf-8")
+        )["events"][0]["event_ticker"]
+        assert captured.startswith("KXNCAAMBGAME-")
+        seg = captured.split("-", 1)[1]
         for series in ("KXNCAAMBGAME", "KXNCAAMBSPREAD", "KXNCAAWBGAME",
                        "KXNCAAWBTOTAL", "KXNCAABGAME"):
             assert series in names, series

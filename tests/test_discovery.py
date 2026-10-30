@@ -264,6 +264,20 @@ class TestMetadataDrift:
             f"unclassified silently drops every game-level market in it."
         )
 
+    def test_college_basketball_league_string_is_priced_from_a_real_capture(self):
+        """#360: the key is Kalshi's own string, read off a captured event.
+
+        The map's history is two leagues that vanished because their strings
+        were guessed. This pins the string to a payload, not to our memory.
+        """
+        capture = load_fixture("events_ncaamb_game.json")
+        leagues = _leagues_in(capture["events"])
+        assert leagues == {"College Basketball (M)"}
+        for league in leagues:
+            assert IN_SCOPE_LEAGUES.get(league) == "basketball_ncaab"
+        found = discover_from_events(capture["events"])
+        assert [e.sport_key for e in found] == ["basketball_ncaab"]
+
     def test_the_two_league_maps_do_not_overlap(self):
         """A league cannot be both priced and declined.
 
@@ -1818,6 +1832,7 @@ class TestTheCompetitionStringReachesTheOddsFeedKey:
         "Pro Basketball (M)": "basketball_nba",
         "Pro Basketball (W)": "basketball_wnba",
         "Pro Hockey": "icehockey_nhl",
+        "College Basketball (M)": "basketball_ncaab",
     }
 
     def test_every_in_scope_league_maps_to_the_key_it_is_meant_to(self):

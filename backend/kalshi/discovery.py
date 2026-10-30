@@ -239,6 +239,11 @@ IN_SCOPE_LEAGUES: dict[str, str] = {
     "Pro Basketball (M)": "basketball_nba",
     "Pro Basketball (W)": "basketball_wnba",
     "Pro Hockey": "icehockey_nhl",
+    # Read off the live listing 2026-10-30 (155 open KXNCAAMBGAME events, each
+    # carrying this exact string; `tests/fixtures/events_ncaamb_game.json`), not
+    # guessed. It is "College Basketball (M)", not "NCAA Basketball" in the
+    # style of "NCAA Football". #360.
+    "College Basketball (M)": "basketball_ncaab",
 }
 
 # Leagues that carry game-level markets and are excluded **on purpose**, with the
