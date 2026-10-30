@@ -121,8 +121,8 @@ export default function ConsensusPanel({ detail }: { detail: MarketDetail }) {
       <p className="mt-4 max-w-[65ch] border-t pt-3 text-sm leading-relaxed text-muted">
         Starting pitchers, bullpens, weather, umpires, lineups — the sharp
         books have already <Term k="priced_in">priced them in</Term> to this
-        line, and Kalshi usually prices within a couple of cents of those
-        books. That is why this tool computes none of them itself:
+        line, and Kalshi&rsquo;s own prices have measured accurate to about two
+        cents. That is why this tool computes none of them itself:
         recomputing what the line already contains
         adds noise, not information — which is what two baseball prop models
         here found. What can matter is news

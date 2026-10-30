@@ -68,7 +68,16 @@ const NOTHING_SETTLED =
   "Nothing has settled since the recorder started watching. When a position you hold settles, it appears here on the next poll.";
 
 /** #413 / J4 (A): what the Open list is, and what it is not. */
-function openLabel(recorded: number, notYetRecorded: number): string {
+function openLabel(
+  recorded: number,
+  notYetRecorded: number,
+  venuePollMs: number | null,
+): string {
+  // `unrecorded_at_venue` is a real answer only after a complete positions
+  // poll (types/hedge.ts); before one, its 0 is "not read", not "none".
+  if (venuePollMs === null) {
+    return `Open combinations: ${recorded} recorded. Kalshi's holdings haven't been read yet, so any you hold there but haven't recorded aren't counted. Singles you hold at Kalshi aren't shown here.`;
+  }
   return `Open combinations: ${recorded} recorded, ${notYetRecorded} at Kalshi not yet recorded. Singles you hold at Kalshi aren't shown here.`;
 }
 
@@ -186,7 +195,11 @@ export default async function BetsPage() {
             {/* J4 (A), #413: a read-only label. It says what this list is NOT
                 (singles at Kalshi) and does not add a singles list. */}
             <p className="mt-2 max-w-[65ch] text-sm text-muted" data-open-label>
-              {openLabel(hedge.positions.length, hedge.unrecorded_at_venue.length)}
+              {openLabel(
+                hedge.positions.length,
+                hedge.unrecorded_at_venue.length,
+                hedge.venue_poll_ms,
+              )}
             </p>
             {hedge.positions.length === 0 &&
             hedge.unrecorded_at_venue.length === 0 ? (
@@ -435,8 +448,12 @@ function RecordStrip({ record }: { record: BetsRecord }) {
       </p>
       {rangeCount > 0 && (
         <p className="mt-1 max-w-[65ch] text-xs text-muted" data-range-count>
-          {rangeCount} {rangeCount === 1 ? "range" : "ranges"} on this page;
-          one landing outside by luck alone is normal.
+          {rangeCount} {rangeCount === 1 ? "range" : "ranges"} on this page.
+          Each holds about 19 times in 20 at fair prices, so{" "}
+          {rangeCount < 20
+            ? "one landing outside by luck alone would not be unusual"
+            : `about ${Math.round(rangeCount / 20)} landing outside by luck alone is normal`}
+          {" "}&mdash; more where bets share a leg or a game.
         </p>
       )}
       {sourceOrder.length > 0 && (

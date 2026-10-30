@@ -47,8 +47,8 @@ class TestAskComesFromTheServer:
 class TestTheDeskDoesNotPriceThisMarket:
     def test_new_sentence_renders_when_detail_is_null(self):
         text = flat(PAGE)
-        assert "The desk doesn&rsquo;t price this market" in text
-        assert "detail === null" in text
+        assert "The desk has no priced row for this market" in text
+        assert "detail === null && data === null" in text
 
     def test_old_sentence_is_gone(self):
         assert "Nothing is recorded here for this ticker" not in flat(PAGE)
@@ -56,7 +56,10 @@ class TestTheDeskDoesNotPriceThisMarket:
 
 class TestConsensusCopy:
     def test_says_a_couple_of_cents(self):
-        assert "within a couple of cents" in flat(CONSENSUS)
+        # measurement-skeptic: ~2c is Kalshi's accuracy, not its distance
+        # from the books.
+        assert "measured accurate to about two" in flat(CONSENSUS)
+        assert "within a couple of cents" not in flat(CONSENSUS)
         assert "two baseball prop models" in flat(CONSENSUS)
 
     def test_refuses_the_old_claims(self):

@@ -457,7 +457,7 @@ export default async function SlatePage({
           A fee sits between them: pay 50c and the bet has to win more than
           50% before you are even &mdash; about{" "}
           <Term k="breakeven">51.75%</Term> at the fee rate this desk assumes;
-          baseball fills have been charged less (about 50.9%), and whether
+          baseball fills have been charged less (a break-even of about 50.9%), and whether
           Kalshi charges anything at payout is unchecked. So a fair value a little above the ask is the normal state of a
           working market, not an opportunity. And this project spent months
           measuring whether the remainder pays after the fee —{" "}
@@ -615,6 +615,11 @@ function Row({
             {subject.how}
           </span>
         )}
+        {/* The desk-notes pill, restored: lane B's #409 row rebuild dropped
+            its render and left the import (measurement-skeptic caught it). */}
+        <span className="ml-auto hidden shrink-0 sm:inline-flex">
+          <CrewBubble row={row} />
+        </span>
       </div>
 
       {/* Ask and fair at equal size. Ask is in foreground ink; fair is

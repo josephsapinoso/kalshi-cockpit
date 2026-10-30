@@ -352,7 +352,7 @@ class TestGamesRowTellsTheAgeAndTheTrust:
         assert "the registered test ended UNRESOLVED on 2026-10-01" in page
         assert '"not computable here"' not in page
         assert "at the fee rate this desk assumes" in page
-        assert "baseball fills have been charged less (about 50.9%)" in page
+        assert "baseball fills have been charged less (a break-even of about 50.9%)" in page
         assert "whether\n          Kalshi charges anything at payout is unchecked" in page
 
     def test_kickoff_uses_the_shared_formatter_in_a_wide_slot(self):

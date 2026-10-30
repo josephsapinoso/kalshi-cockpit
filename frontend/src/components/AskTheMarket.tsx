@@ -624,7 +624,7 @@ function TakeIt({
             estimated high, so the real charge should be a little under.
           </>
         )}{" "}
-        The maker has a few seconds to confirm and may decline, which costs you
+        The maker still has to confirm and may decline, which costs you
         nothing.
       </p>
       <FeeShare quote={quote} />

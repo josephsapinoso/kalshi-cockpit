@@ -681,8 +681,8 @@ def _words(
     )
     return reuse_line + (
         f"{len(quotes)} maker(s) answered.{spread_line}{fine_line} {book_line} "
-        "A quote is an offer, not a fill: the maker still has a few seconds "
-        "to confirm and may decline."
+        "A quote is an offer, not a fill: the maker still has to confirm "
+        "and may decline."
     )
 
 

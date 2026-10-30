@@ -37,9 +37,9 @@ const STEPS: Step[] = [
         the starting lineup and the podcast take. Usually the honest answer
         is &ldquo;nothing&rdquo; &mdash; and that is a complete, professional
         answer. This project looked for a durable{" "}
-        <Term k="edge">edge</Term> everywhere it could reach and found none
-        it could use. The main test ended unresolved: no evidence of an
-        edge, which is not proof there is none. Bet anyway if you enjoy it;
+        <Term k="edge">edge</Term> in the places it could reach and found none
+        it could use. Its main test ended unresolved: it could neither show
+        an edge nor rule one out. Bet anyway if you enjoy it;
         just name it correctly while you do: entertainment, with a good
         record attached.
       </>

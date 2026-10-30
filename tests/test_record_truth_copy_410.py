@@ -67,10 +67,12 @@ class TestFiveStepTest:
     def test_hunt_sentence(self):
         flat = _flat(_read("components/FiveStepTest.tsx"))
         assert "found none it could use." in flat
+        # measurement-skeptic: say UNRESOLVED directly, not "no evidence".
         assert (
-            "The main test ended unresolved: no evidence of an edge, which is "
-            "not proof there is none." in flat
+            "Its main test ended unresolved: it could neither show an edge "
+            "nor rule one out." in flat
         )
+        assert "no evidence of an edge" not in flat
         assert "measured that there wasn’t one" not in flat
 
     def test_fee_bar_sentence(self):
@@ -100,14 +102,16 @@ class TestGlossary:
 
     def test_range_treats_bets_as_separate(self):
         g = self._g()
+        # measurement-skeptic: "usually" wider -- a hedge moves against the
+        # leg it hedges and narrows it.
         assert (
-            "The range treats each bet as separate. Bets that share a leg or a "
-            "game win or lose together, so the real range is wider." in g
+            "The range treats each bet as separate. Bets sharing a leg or a "
+            "game tend to move together, so the real range is usually wider." in g
         )
 
     def test_game_script_card_has_no_count(self):
         g = self._g()
-        assert "A short story for each game and the same-game picks that fit it." in g
+        assert "A short story for a game, built when you tap" in g
         assert "two or three picks" not in g
 
     def test_consensus_chance_is_the_desks_estimate(self):

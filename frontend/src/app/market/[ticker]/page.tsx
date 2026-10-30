@@ -294,10 +294,13 @@ export default function MarketPage() {
           {league && <span>{league} · </span>}
           {detail ? statusLine(detail, now) : ""}
         </p>
-        {!stillLoading && detail === null && (
+        {/* measurement-skeptic: only when the chart is empty too (the
+            candles can render without a priced row), and worded as "no
+            priced row" -- a failed read also leaves `detail` null. */}
+        {!stillLoading && detail === null && data === null && (
           <p className="mt-2 max-w-[65ch] text-sm text-muted">
-            The desk doesn&rsquo;t price this market, so there&rsquo;s no page
-            for it here. It may still trade on Kalshi.
+            The desk has no priced row for this market, so there&rsquo;s no
+            fair value or judgment to show here. It may still trade on Kalshi.
           </p>
         )}
         {detail && !detail.team && totalPayClause(detail.side_outcome) && (

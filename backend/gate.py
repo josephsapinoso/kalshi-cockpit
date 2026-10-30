@@ -636,8 +636,8 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
             + (
                 f" — counted at the fixed ${REFERENCE_BANKROLL_DOLLARS:,.0f} "
                 f"reference bankroll, not at yours, so the record does not move "
-                f"when the deposit does; what you may actually buy is on Games "
-                f"and can be zero on a game counted here"
+                f"when the deposit does; at your balance a game counted here "
+                f"can size to zero contracts"
             )
             + composition
             + approximation
@@ -766,9 +766,12 @@ def _fee_model_verified(conn) -> Condition:
             detail=(
                 "no fills from the automated engine yet — it has never "
                 "placed an order. Your own bets aren't counted here (ADR 0043 "
-                "leaves that open). Your baseball fills were charged about half "
-                "the fee rate the desk assumes; other sports aren't measured, so "
-                "the desk keeps assuming the higher rate."
+                "leaves that open). Nine of your baseball fills, all within four "
+                "days, were charged about half the fee rate the desk assumes; "
+                "your combination fills were charged the full rate or slightly "
+                "more. What decides the rate \u2014 sport, series or something "
+                "else \u2014 is not known, so the desk keeps assuming the "
+                "higher one."
             ),
         )
 

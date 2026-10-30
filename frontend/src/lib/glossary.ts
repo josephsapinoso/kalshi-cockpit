@@ -371,10 +371,11 @@ export const GLOSSARY = {
   plausible_range: {
     label: "range",
     definition:
-      "Wins bounce, like heads in 40 coin flips. The range is where " +
-      "the win count lands 19 times in 20 at fair prices: 10 expected reads " +
-      "4 to 16. The range treats each bet as separate. Bets that share " +
-      "a leg or a game win or lose together, so the real range is wider.",
+      "Wins bounce, like coin flips. The range is where the win count " +
+      "lands about 19 times in 20 at fair prices: 40 bets at 25c read 4 " +
+      "to 16 wins. The range treats each bet as separate. Bets sharing a " +
+      "leg or a game tend to move together, so the real range is usually " +
+      "wider.",
   },
   too_few: {
     label: "too few to judge",
@@ -488,7 +489,7 @@ export const GLOSSARY = {
     definition:
       "The books' combined, margin-removed estimate of how often this side " +
       "wins. 71% means: of 100 games like this, about 71. It is the desk's best " +
-      "estimate — and the price usually charges exactly for it.",
+      "estimate — and the price usually sits close to it.",
   },
   scout_desk: {
     label: "scout desk",
@@ -532,7 +533,8 @@ export const GLOSSARY = {
   game_script_card: {
     label: "game-script card",
     definition:
-      "A short story for each game and the same-game picks that fit it. " +
+      "A short story for a game, built when you tap, and the same-game " +
+      "picks that fit it. " +
       "For example, \"a slow, low-scoring game\", with the news that " +
       "would kill it. The desk writes it from who is playing, rest and " +
       "matchups. It is an opinion with sources, not a price.",

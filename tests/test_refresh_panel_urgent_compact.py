@@ -33,7 +33,8 @@ def test_compact_puts_league_buttons_inside_a_disclosure_with_one_summary_button
     assert compact_branch.index("{detail}") < compact_branch.index("</details>")
     # the per-league buttons live in `detail`, never beside the status line
     assert compact_branch.count("{detail}") == 1
-    assert "Refresh prices" in compact_branch
+    # It spends odds credits, not Kalshi prices (measurement-skeptic).
+    assert "Refresh the odds" in compact_branch
 
 
 def test_the_buttons_and_captions_are_only_reachable_through_detail():

@@ -69,10 +69,12 @@ class TestRangeCount:
     def test_page_prints_the_count_with_the_sentence(self):
         flat = re.sub(r"\s+", " ", PAGE)
         assert "range_count" in PAGE
-        assert (
-            "on this page; one landing outside by luck alone is normal."
-            in flat
-        )
+        # measurement-skeptic: the misses expected by luck scale with the
+        # count (about 1 in 20), so the sentence does too.
+        assert "Each holds about 19 times in 20 at fair prices" in flat
+        assert "Math.round(rangeCount / 20)" in PAGE
+        assert "more where bets share a leg or a game." in flat
+        assert "on this page; one landing outside by luck alone is normal." not in flat
 
 
 class TestLegPriceLabel:
@@ -110,7 +112,18 @@ class TestOpenLabel:
         assert "data-open-label" in PAGE
 
     def test_label_reads_both_counts_from_the_hedge_read(self):
-        assert "openLabel(hedge.positions.length, hedge.unrecorded_at_venue.length)" in PAGE
+        flat = re.sub(r"\s+", " ", PAGE)
+        assert (
+            "openLabel( hedge.positions.length, hedge.unrecorded_at_venue.length, "
+            "hedge.venue_poll_ms, )" in flat
+        )
+
+    def test_an_unpolled_venue_does_not_print_a_zero(self):
+        """`unrecorded_at_venue` is [] before any complete poll, so its 0 is
+        "not read", not "none" (measurement-skeptic)."""
+        flat = re.sub(r"\s+", " ", PAGE)
+        assert "if (venuePollMs === null) {" in PAGE
+        assert "Kalshi's holdings haven't been read yet" in flat
 
     def test_no_singles_list_is_added(self):
         assert "singles you hold" not in PAGE.lower().replace(

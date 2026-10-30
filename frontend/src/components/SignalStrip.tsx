@@ -125,7 +125,7 @@ export default function SignalStrip({
         {signal.may_declare ? (
           <>
             The record has reached the registered floor of {clusters_to_declare}{" "}
-            games, so this verdict is a declaring one. It was fixed in advance in{" "}
+            groups of bets, so this verdict is a declaring one. It was fixed in advance in{" "}
             <code className="rounded bg-accent-soft px-1 py-0.5 font-mono text-xs text-accent">
               {signal.registration}
             </code>
@@ -139,7 +139,7 @@ export default function SignalStrip({
               declaring verdict. `may_declare` is false here by construction.
             */}
             The record has reached the registered floor of {clusters_to_declare}{" "}
-            games, but removing one pre-registered group moved the answer, so
+            groups of bets, but removing one pre-registered group moved the answer, so
             the verdict was lowered and is{" "}
             <strong className="font-semibold text-foreground">not a declaring one</strong>.
             The downgrade is named below.
@@ -153,7 +153,8 @@ export default function SignalStrip({
             */}
             <strong className="font-semibold text-foreground">Not yet resolved</strong> —
             and that is not the same as no signal. The registration forbids
-            declaring either way below {clusters_to_declare} games.
+            declaring either way below {clusters_to_declare} groups of bets (one game can hold more
+            than one).
           </>
         )}
       </p>

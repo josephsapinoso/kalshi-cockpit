@@ -203,7 +203,8 @@ export default async function GatePage() {
         </p>
         <p className="mt-2 text-sm leading-relaxed text-muted">
           300 is a floor, not proof: this project&rsquo;s registered price test
-          needed at least 861 and still ended unresolved at 1,000.
+          set its own floor at 861 groups of bets and still ended unresolved at
+          1,000 groups (889 games).
         </p>
       </div>
 

@@ -441,7 +441,7 @@ export default async function RefreshOddsPanel({
         // are all inside, so the first game is not pushed down by them.
         <details className="mt-2">
           <summary className="inline-block cursor-pointer rounded-lg border px-3 py-2 text-sm font-semibold">
-            Refresh prices…
+            Refresh the odds…
           </summary>
           {detail}
         </details>

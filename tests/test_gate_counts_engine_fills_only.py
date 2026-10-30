@@ -69,7 +69,8 @@ class TestAHandPlacedFillDoesNotReachTheGate:
 
         assert "most expensive candidate" not in detail
         assert "Your own bets aren't counted here" in detail
-        assert "the desk keeps assuming the higher rate" in detail
+        assert "the desk keeps assuming the" in detail
+        assert "combination fills were charged the full rate" in detail
 
     def test_a_matching_hand_fill_does_not_flip_the_condition(self, conn):
         """The loosening direction, which is the one that matters.

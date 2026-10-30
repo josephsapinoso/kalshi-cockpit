@@ -1953,10 +1953,11 @@ def create_app(
             # #344); the meaning -- no column here is added up into a pick --
             # is now said in those words.
             "note": (
-                "None of these figures is added up into a pick. They were "
-                "scored against outcomes under a registration that ended "
-                "UNRESOLVED on 2026-10-01: no evidence of an edge, which is "
-                "not proof there is none."
+                "None of these figures is added up into a pick. Only the gap "
+                "between the books' fair value and Kalshi's price was tested, "
+                "against Kalshi's closing price, under a registration that "
+                "ended UNRESOLVED on 2026-10-01: it could neither show an edge "
+                "nor rule one out. The other figures have not been scored."
             ),
         }
         # The cut, echoed, ONLY when one was applied: the key is absent

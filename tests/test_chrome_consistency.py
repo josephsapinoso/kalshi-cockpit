@@ -57,8 +57,9 @@ class TestCopy:
     def test_gate_says_300_is_a_floor_not_proof(self):
         src = read("app/gate/page.tsx")
         assert "300 is a floor, not proof" in src
-        assert "needed at least 861" in src
-        assert "still ended unresolved at 1,000" in src
+        # measurement-skeptic: 861 and 1,000 count groups, not games.
+        assert "set its own floor at 861 groups of bets" in src
+        assert "1,000 groups (889 games)" in src
 
     def test_playbook_says_actionable_rows(self):
         src = read("app/playbook/page.tsx")
