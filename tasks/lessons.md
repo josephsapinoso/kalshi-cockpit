@@ -16,6 +16,12 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-10-30 - Adding a value to an allow-list breaks every test that used it as the "not allowed" example
+
+From the hundred-and-fifth session (CI red after `basketball_ncaab` entered `IN_SCOPE_LEAGUES`).
+
+- **A negative example in a test is a claim about the allow-list, and it changes when the list does.** `test_a_prop_event_or_unlinked_fixture_is_not_a_game` picked `basketball_ncaab` as its out-of-scope sport. Both the lane and main ran the tests that import the list, and both were green. This test never imports the list, so neither run caught it, and CI went red on the merge. Before merging a scope addition, grep `tests/` for the literal value being added, not only for the name of the list.
+
 ## 2026-10-18 - An alarm compares at the instrument's own precision; rounding an input onto a coarser grid fires it on a model that held
 
 From the hundred-and-first session (live "Fee model mismatch — stop the line" on a combo fill at $0.0071).

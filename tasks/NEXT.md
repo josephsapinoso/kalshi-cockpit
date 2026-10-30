@@ -139,6 +139,34 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-10-30 (hundred-and-fifth session) — #361 read: busiest day 546, daily cap 700 → 800 on Joe's word; men's college basketball in scope (#360); live and demo on `4afdf974`
+
+- **The queue was not date-gated.** #361 had been due since 10-27, and Kalshi had already listed men's college basketball (`KXNCAAMBGAME`, competition `"College Basketball (M)"`, 155 events, 133 on 11-02, all `exchange_index` 3). Partner found the listing; main re-verified it on the public API.
+- **#361 closed.** The reading is in `docs/measurements/2026-10-30-odds-credits-after-an-nba-week.md`; measurement-skeptic passed it with corrections, which are applied.
+  - n = 19 days. The busiest day was **546** (Sat 10-24) and the cap never bound.
+  - #359's 706–726 Saturday estimate was about 170 too high. NBA is 75–123 a day.
+  - October closes near 10,300 credits. MLB is over.
+  - November with NCAAB projects at **13,300–16,900**, so it does not cross 20,000 and the $59 plan is not needed.
+  - A November Saturday could reach 606–726. **Joe chose (AskUserQuestion) to raise `ODDS_DAILY_CREDIT_BUDGET` from 700 to 800 now** rather than wait for a measured Saturday. 18,000 is unchanged. `test_desk_follows_attention`'s "floor + slice + tap reserve overfill the day" assertion now reads `<=`, and was mutation-verified red at 700.
+  - **The two-hour slot separation does NOT cap a sport's kickoff windows**: they chain. The draft's ≈220/day NCAAB ceiling was wrong; it is ≈265, with a hard maximum of 432.
+- **#360 merged (lane, Sonnet), stays open for its last Done-when.**
+  - Changes: the league entry, a real capture, the ESPN path, `basketball_ncaab.yaml` (one alias, `Miami (FL)`, n = 7: the books listed 7 of 155), `tests/test_ncaab_names_resolve.py`, and the frontend label and chip.
+  - kalshi-platform: SHIP WITH NOTE. Shard 3 already carries NBA singles, and check 9a refuses an unfunded shard before the venue call. 2 of 7 linked games sat exactly on the 4 h kickoff tolerance edge.
+  - **#267 closed** (the same-game test uses the real ticker).
+  - CI went red once after the merge: `test_game_script_card_screen.py` used `basketball_ncaab` as its out-of-scope example. Fixed with `soccer_epl`.
+- **#347's open question is answered:** `/api/stream/quotes` (and `/api/board`) return 401 without a login on live, so #347 stays deferred.
+- The first live deploy failed on a Fly builder EOF. It was transient, and the re-run succeeded.
+
+### Still open
+
+1. #401 — 2026-11-03 and 11-08: first college-basketball slates (credits, full-slate team-name re-capture, kickoff skew, WNBA after 11-01).
+2. #360 — closes on #401's 11-03 read (first NCAAB day under the cap, no refusal).
+3. #331 — 2026-11-01: the leg census by kind.
+4. #355 — same-game vs cross-sport half only; still behind #331.
+5. #347 — the backend no-op sweep and the routes nothing calls; deferred (401 confirmed).
+6. #337 — 2027-01-15: look B for P1 only.
+7. #151, #197 — carried forward unchanged.
+
 ## 2026-10-25 (hundred-and-fourth session) — queue date-gated, nothing executed; #302 and #197 empty by finding; live and demo on `c2350d6c`
 
 - **State verified:** main clean at `499a3236`, nothing unpushed, no open PRs, CI green, 0 open Dependabot alerts, no lanes. Partner's call: nothing on the frontier is executable today, so end the session.
