@@ -382,7 +382,8 @@ class TestARefusalIsNotAnUnknown:
                 conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000, api=api,
                 dry_run=False,
             )
-        assert "Ask for a price again" in exc.value.detail
+        # Town hall #415 reworded it; the instruction to ask again stands.
+        assert "Ask for a new price" in exc.value.detail
         assert "may still have reached" not in exc.value.detail
 
     async def test_a_timeout_IS_still_an_unknown(self, conn):

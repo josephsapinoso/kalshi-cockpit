@@ -59,7 +59,17 @@ class TestAHandPlacedFillDoesNotReachTheGate:
         condition = _fee_model_verified(conn)
 
         assert condition.met is False
-        assert "no fills yet" in condition.detail
+        assert "no fills from the automated engine yet" in condition.detail
+
+    def test_the_empty_state_names_the_assumed_rate_not_a_retired_model(self, conn):
+        """Town hall #415: the old copy said the model charged "the most
+        expensive candidate", a fee model `core/fees.py` retired, and said
+        nothing of the baseball fills that were charged about half the rate."""
+        detail = _fee_model_verified(conn).detail
+
+        assert "most expensive candidate" not in detail
+        assert "Your own bets aren't counted here" in detail
+        assert "the desk keeps assuming the higher rate" in detail
 
     def test_a_matching_hand_fill_does_not_flip_the_condition(self, conn):
         """The loosening direction, which is the one that matters.
@@ -76,7 +86,7 @@ class TestAHandPlacedFillDoesNotReachTheGate:
         assert condition.met is False, (
             "a bet placed by hand in the Kalshi app moved a live-trading gate"
         )
-        assert "no fills yet" in condition.detail
+        assert "no fills from the automated engine yet" in condition.detail
 
     def test_a_mismatching_hand_fill_does_not_flip_it_either(self, conn):
         """The tightening direction. Excluded for the same reason.

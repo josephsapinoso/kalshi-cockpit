@@ -784,6 +784,15 @@ function TicketBody({
             max={99}
             disabled={sending}
           />
+          {/* Town hall #415: the stepper counts whole cents, so a deci-cent
+              ask (~25% of Kalshi markets) displayed rounded. Display only --
+              the ceiling sent is still `maxPriceTenths`, untouched here. */}
+          {maxPriceTenths !== null && maxPriceTenths % 10 !== 0 && (
+            <p className="mt-1 text-xs text-muted">
+              Set to exactly {(maxPriceTenths / 10).toFixed(1)}c; the buttons
+              move it in whole cents.
+            </p>
+          )}
           <p className="mt-2 max-w-[65ch] text-xs text-muted">
             The order goes out at the live ask, immediate-or-cancel, and is
             refused — never re-priced — if the ask has moved above this. The

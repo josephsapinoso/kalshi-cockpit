@@ -622,7 +622,7 @@ class TestGateConditions:
         decision = evaluate_gate(conn, GateConfig(live_trading_enabled=True))
         fee = next(c for c in decision.conditions if c.name == "fee_model_verified")
         assert not fee.met
-        assert "no fills yet" in fee.detail
+        assert "no fills from the automated engine yet" in fee.detail
 
     def test_config_alone_does_not_open_the_gate(self, gate_db):
         conn = _conn(gate_db)

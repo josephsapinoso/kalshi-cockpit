@@ -1563,9 +1563,12 @@ def _venue_refusal_words(exc: Exception) -> Optional[str]:
         )
     if "expired" in body or "not_found" in body:
         return (
-            "That quote is gone -- a maker price lives for a few seconds and "
-            "this one expired before the tap landed. **Nothing was placed "
-            "and nothing was charged.** Ask for a price again."
+            # Town hall #415: this said a maker price "lives for a few
+            # seconds" and "expired" -- a lifetime nobody measured, and
+            # `not_found` also means withdrawn. Say only what Kalshi said.
+            "Kalshi says that quote is no longer available. It may have "
+            "expired or been withdrawn. **Nothing was placed and nothing was "
+            "charged.** Ask for a new price."
         )
     return (
         f"Kalshi refused this acceptance ({body[:180]}). **Nothing was placed "

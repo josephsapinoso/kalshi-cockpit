@@ -360,7 +360,7 @@ class TestPollPortfolio:
         ).fetchone()["source"] == "venue_hand"
         condition = _fee_model_verified(conn)
         assert condition.met is False
-        assert "no fills yet" in condition.detail
+        assert "no fills from the automated engine yet" in condition.detail
 
     async def test_a_polled_fill_predicts_a_fee_beside_the_actual(self, conn):
         """`fee_predicted` is NOT NULL by schema, and populating it is the

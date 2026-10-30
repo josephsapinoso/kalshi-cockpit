@@ -631,11 +631,12 @@ def _clv_evidence(conn, minimum: int) -> tuple[Condition, Condition]:
             # reads as "you can buy this", and at a small bankroll it does not
             # mean that: it means the strategy had a bet here at the reference
             # profile. What may actually be bought is `suggested_contracts`, on
-            # the Board, and it can be zero on a row counted here.
+            # Games (the Board was deleted, ADR 0195), and it can be zero on a
+            # row counted here.
             + (
                 f" — counted at the fixed ${REFERENCE_BANKROLL_DOLLARS:,.0f} "
                 f"reference bankroll, not at yours, so the record does not move "
-                f"when the deposit does; what you may actually buy is on the Board "
+                f"when the deposit does; what you may actually buy is on Games "
                 f"and can be zero on a game counted here"
             )
             + composition
@@ -763,9 +764,11 @@ def _fee_model_verified(conn) -> Condition:
             name="fee_model_verified",
             met=False,
             detail=(
-                "no fills yet — the fee model is still an unresolved hedge "
-                "between two disagreeing sources, charging the most expensive "
-                "candidate. It cannot be verified without ground truth."
+                "no fills from the automated engine yet — it has never "
+                "placed an order. Your own bets aren't counted here (ADR 0043 "
+                "leaves that open). Your baseball fills were charged about half "
+                "the fee rate the desk assumes; other sports aren't measured, so "
+                "the desk keeps assuming the higher rate."
             ),
         )
 

@@ -809,7 +809,8 @@ function Ladder({
               <th className="py-1 pr-3 font-normal">costs</th>
               <th className="py-1 pr-3 font-normal">if the leg wins</th>
               <th className="py-1 pr-3 font-normal">if it loses</th>
-              <th className="py-1 font-normal">worst case</th>
+              {/* J5 (A), #406: the worse of two estimated outcomes. */}
+              <th className="py-1 font-normal">worst case (estimate)</th>
             </tr>
           </thead>
           <tbody>
