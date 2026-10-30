@@ -519,7 +519,7 @@ class TestTheListCarriesTonightsGamesWithoutACard:
         _fixture(conn, "o2", "KXNFLGAME-26SEP13NOLINK", NOW + 2 * HOUR,
                  linked=False)
         _fixture(conn, "o3", "KXNBAGAME-26SEP13OUTSCP", NOW + 2 * HOUR,
-                 sport="basketball_ncaab")
+                 sport="soccer_epl")
         assert http.get("/api/game-cards").json()["cards"] == []
 
     def test_the_fixture_read_is_an_indexed_seek_not_a_snapshot_scan(self, tmp_path):
