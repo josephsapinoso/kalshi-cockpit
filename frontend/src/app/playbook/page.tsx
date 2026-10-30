@@ -9,6 +9,7 @@ import FiveStepTest from "@/components/FiveStepTest";
 import PageTitle from "@/components/PageTitle";
 import ParlayChapter from "@/components/ParlayChapter";
 import Term from "@/components/Term";
+import { SHELL_WIDTH } from "@/lib/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -152,7 +153,7 @@ function VersionCard({
         <Stat label="Recommendations" value={version.recommendations} />
         <Stat label="Markets" value={version.markets} />
         <Stat label="Unsuppressed" value={version.unsuppressed} />
-        <Stat label="Actionable" value={version.actionable} />
+        <Stat label="Actionable rows" value={version.actionable} />
         <Stat label={<Term k="clv">CLV scored</Term>} value={version.clv_scored} />
       </dl>
 
@@ -186,9 +187,9 @@ function VersionCard({
             {changes.map(([key, change]) => (
               <li key={key} className="break-words">
                 <span className="text-muted">{key}</span>{" "}
-                <span className="text-negative">{render(change.from)}</span>
+                <span>{render(change.from)}</span>
                 {" → "}
-                <span className="text-positive">{render(change.to)}</span>
+                <span className="font-semibold">{render(change.to)}</span>
               </li>
             ))}
           </ul>
@@ -236,5 +237,5 @@ function render(value: unknown): string {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-3xl px-6 py-12 sm:py-16">{children}</div>;
+  return <div className={`${SHELL_WIDTH} px-6 py-12 sm:py-16`}>{children}</div>;
 }

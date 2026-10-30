@@ -3,6 +3,7 @@ import type { Signal } from "@/lib/api";
 import PageTitle from "@/components/PageTitle";
 import SignalStrip from "@/components/SignalStrip";
 import Term from "@/components/Term";
+import { SHELL_WIDTH } from "@/lib/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -200,6 +201,10 @@ export default async function GatePage() {
           scored whether or not it was bet, which is what makes that reachable
           without wagering three hundred times.
         </p>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          300 is a floor, not proof: this project&rsquo;s registered price test
+          needed at least 861 and still ended unresolved at 1,000.
+        </p>
       </div>
 
       {/* The signal test's full box (Joe's B1 to #385, 2026-10-13). It used
@@ -215,5 +220,5 @@ export default async function GatePage() {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-3xl px-6 py-12 sm:py-16">{children}</div>;
+  return <div className={`${SHELL_WIDTH} px-6 py-12 sm:py-16`}>{children}</div>;
 }

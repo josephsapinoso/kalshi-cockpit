@@ -163,7 +163,12 @@ const LINKS = [
 // and lights the same link.
 function lights(href: string, pathname: string): boolean {
   if (pathname === href) return true;
-  return href === "/" && (pathname === "/slate" || pathname.startsWith("/market/"));
+  return (
+    href === "/" &&
+    (pathname === "/slate" ||
+      pathname.startsWith("/market/") ||
+      pathname.startsWith("/game/"))
+  );
 }
 
 export default function Nav() {
