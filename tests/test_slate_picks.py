@@ -494,7 +494,8 @@ class TestAPickOnARefusedRowWearsTheRefusal:
         source = _src(_COMPONENT)
         assert "suppressed_reason" in source
         assert "whyRefusedHref(pick.ticker)" in source
-        assert "glossSentence(" in source
+        assert "glossSentence(refusal(pick)) !== null &&" in source
+        assert "{glossSentence(refusal(pick))}" in source
 
     def test_the_component_does_not_filter_or_sort_on_the_refusal(self):
         source = _src(_COMPONENT)
