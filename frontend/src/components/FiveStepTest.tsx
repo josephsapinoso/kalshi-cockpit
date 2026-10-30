@@ -36,9 +36,10 @@ const STEPS: Step[] = [
         disagreeing, and it already contains the injury news, the weather,
         the starting lineup and the podcast take. Usually the honest answer
         is &ldquo;nothing&rdquo; &mdash; and that is a complete, professional
-        answer. This project went hunting for a durable{" "}
-        <Term k="edge">edge</Term> across every corner it could reach and
-        measured that there wasn&rsquo;t one. Bet anyway if you enjoy it;
+        answer. This project looked for a durable{" "}
+        <Term k="edge">edge</Term> everywhere it could reach and found none
+        it could use. The main test ended unresolved: no evidence of an
+        edge, which is not proof there is none. Bet anyway if you enjoy it;
         just name it correctly while you do: entertainment, with a good
         record attached.
       </>
@@ -64,8 +65,10 @@ const STEPS: Step[] = [
         history, not an offer. Then add Kalshi&rsquo;s{" "}
         <Term k="fee">fee</Term>, which is biggest near a coin flip: about
         1.75c per contract at 50c, so a $2 bet there costs roughly 7c to
-        place. That moves the bar. At a 50c ask you must be right about
-        51.75% of the time simply to break even (a sportsbook at &minus;110
+        place. That moves the bar. At a 50c ask the desk assumes you
+        must be right about 51.75% of the time to break even; measured on
+        baseball it is about 50.9%, and whether Kalshi also charges a fee
+        when a bet pays out is unchecked (a sportsbook at &minus;110
         needs 52.38%, which is the whole of Kalshi&rsquo;s advantage &mdash;
         a discount on your losses, not a reason to bet). On a NO bet, do the same arithmetic against the NO ask.
       </>

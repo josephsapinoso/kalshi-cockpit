@@ -180,6 +180,15 @@ function preTick(raw: string | undefined, listing: GameLegsData): Record<string,
   return ticked;
 }
 
+// The router (backend/api/routers/game.py) answers 503 with this sentence
+// when the instance has no Kalshi credentials, i.e. the public demo. It is
+// mapped here, not edited there. The screen must not hint at adding
+// credentials: Kalshi's Developer Agreement section 3.1 forbids sharing
+// API-derived data with third parties.
+const NO_CREDENTIALS_FROM_ROUTER = "No Kalshi credentials on this instance.";
+const DEMO_NOT_CONNECTED =
+  "This demo isn\u2019t connected to Kalshi, so a game\u2019s bets can\u2019t be listed here.";
+
 export default function GameLegs({
   eventTicker,
   initialLegs,
@@ -326,7 +335,8 @@ export default function GameLegs({
         <GameHeading eventTicker={eventTicker} data={null} />
         {belowHeading}
         <p className="mt-6 max-w-[65ch] text-sm text-accent-2">
-          {error} Nothing was created.
+          {error === NO_CREDENTIALS_FROM_ROUTER ? DEMO_NOT_CONNECTED : error}{" "}
+          Nothing was created.
         </p>
       </>
     );
