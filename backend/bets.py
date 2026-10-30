@@ -725,6 +725,44 @@ def expected_block(cells: list[tuple[int, bool]]) -> dict[str, Any]:
     return block
 
 
+def _has_range(block: Any) -> bool:
+    """A served expected-vs-won block that carries a range (not `too_few`)."""
+    return (
+        isinstance(block, dict)
+        and block.get("range_low") is not None
+        and block.get("range_high") is not None
+    )
+
+
+def count_ranges(record: dict) -> int:
+    """#413: how many plausible ranges the Your bets page is served.
+
+    About 19 in 20 ranges hold the result IF the prices were fair, so with
+    many on one page a miss or two is expected; the page prints this count
+    beside them. Counts every served block with a range: each kind's
+    overall line and price buckets, each pick-source line, each league/kind
+    leg cell and each by-shape cell. `too_few` blocks carry none and are
+    not counted.
+    """
+    blocks: list[Any] = []
+    for summary in (record.get("summary") or {}).values():
+        expected = summary.get("expected")
+        if expected:
+            blocks.append(expected)
+            blocks.extend(expected.get("buckets", []))
+    for per_kind in (record.get("by_source") or {}).values():
+        blocks.extend(b.get("expected") for b in per_kind)
+    for league in (record.get("by_leg_kind") or {}).get("leagues") or []:
+        blocks.extend(k.get("expected") for k in league["kinds"])
+    shape = record.get("by_shape") or {}
+    blocks.extend(shape.get("price_bands", []))
+    blocks.extend(shape.get("leg_counts", []))
+    total = 0
+    for block in blocks:
+        total += 1 if _has_range(block) else 0
+    return total
+
+
 def _expected_summary(cells: list[tuple[int, bool]]) -> dict[str, Any]:
     """The overall block plus one block per price bucket (empty ones kept,
     so the screen's rows do not move with the data)."""
@@ -1370,6 +1408,8 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     record["pick_sources"] = pick_source_payload(
         conn, [b["ticker"] for b in bets] + open_combo_tickers(conn)
     )
+    # #413: the page prints how many ranges it shows; the server counts them.
+    record["range_count"] = count_ranges(record)
     return record
 
 
