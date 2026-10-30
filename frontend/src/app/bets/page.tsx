@@ -59,6 +59,19 @@ export const dynamic = "force-dynamic";
  *   exist with the per-group view beside them. It is a bank statement, not
  *   a report card.
  */
+/** #413: what a leg's "price" is in the by-league block. */
+const LEG_PRICE_LABEL =
+  "At each leg's own Kalshi price when priced — you paid for the whole combination, not this leg.";
+
+/** #413: the one sentence for an empty record. */
+const NOTHING_SETTLED =
+  "Nothing has settled since the recorder started watching. When a position you hold settles, it appears here on the next poll.";
+
+/** #413 / J4 (A): what the Open list is, and what it is not. */
+function openLabel(recorded: number, notYetRecorded: number): string {
+  return `Open combinations: ${recorded} recorded, ${notYetRecorded} at Kalshi not yet recorded. Singles you hold at Kalshi aren't shown here.`;
+}
+
 export default async function BetsPage() {
   let record;
   try {
@@ -71,6 +84,7 @@ export default async function BetsPage() {
     );
   }
   const { totals } = record;
+  const nothingSettled = record.bets.length === 0;
   // The open section's data is the same fetch /hedge made (#240): no new
   // route and no new arithmetic. A failed read is its own state, never a
   // count of zero -- "0 open" off an unreadable answer would be a claim.
@@ -132,7 +146,15 @@ export default async function BetsPage() {
         </p>
       </header>
 
-      <RecordStrip record={record} />
+      {nothingSettled ? (
+        // #413: nothing has settled, so ONE sentence stands where the strip,
+        // the net block and the empty-list line each used to say so.
+        <p className="mb-8 max-w-[65ch] text-sm text-muted" data-nothing-settled>
+          {NOTHING_SETTLED}
+        </p>
+      ) : (
+        <RecordStrip record={record} />
+      )}
 
       {/*
         **Open (N), first on the page (#240, Joe's 234 A, 2026-09-30).** What
@@ -145,7 +167,7 @@ export default async function BetsPage() {
         component's own collapsed group. An unreadable answer says so rather
         than printing 0.
       */}
-      <section id="open" className="mb-10 scroll-mt-24">
+      <section id="open" className="mb-10 scroll-mt-24" data-open-section>
         <h2 className="display text-xl sm:text-2xl">
           Open{openCount === null ? "" : ` (${openCount})`}
           {openCount === null ? null : (
@@ -161,6 +183,11 @@ export default async function BetsPage() {
           </p>
         ) : (
           <>
+            {/* J4 (A), #413: a read-only label. It says what this list is NOT
+                (singles at Kalshi) and does not add a singles list. */}
+            <p className="mt-2 max-w-[65ch] text-sm text-muted" data-open-label>
+              {openLabel(hedge.positions.length, hedge.unrecorded_at_venue.length)}
+            </p>
             {hedge.positions.length === 0 &&
             hedge.unrecorded_at_venue.length === 0 ? (
               <p className="mt-3 max-w-[65ch] text-sm text-muted" data-open-empty>
@@ -203,6 +230,9 @@ export default async function BetsPage() {
         )}
       </section>
 
+      {nothingSettled ? (
+        <NotTonight lockoutUntilMs={record.lockout_until_ms ?? null} />
+      ) : (
       <div className="hud rounded-2xl border border-edge bg-card p-5">
         <div className="text-xs font-semibold uppercase tracking-widest text-muted">
           <Term k="net">Net</Term>, over the whole mirrored record
@@ -256,6 +286,7 @@ export default async function BetsPage() {
         )}
         <MirrorNotAccount firstSettledMs={record.first_settled_ms} />
       </div>
+      )}
 
       {/* What is at risk right now (B3), above the settled list: the settled
           record alone hides the money currently on the table. Unsigned,
@@ -286,12 +317,7 @@ export default async function BetsPage() {
         under Open above.
       </p>
 
-      {record.bets.length === 0 ? (
-        <p className="mt-8 max-w-[65ch] text-sm text-muted">
-          Nothing has settled since the recorder started watching. When a
-          position you hold settles, it appears here on the next poll.
-        </p>
-      ) : (
+      {nothingSettled ? null : (
         <>
           {SECTIONS.map((section) => (
             <BetSection
@@ -357,6 +383,10 @@ function RecordStrip({ record }: { record: BetsRecord }) {
       wonSum += k.summary.expected.won;
     }
   }
+  const singlesSettled = record.summary?.single?.computable ?? 0;
+  const combosSettled = record.summary?.combo?.computable ?? 0;
+  const rangeCount =
+    (record as BetsRecord & { range_count?: number }).range_count ?? 0;
   const only = withExpected.length === 1 ? withExpected[0].summary?.expected : null;
   const rangeWords =
     withExpected.length === 0
@@ -376,7 +406,7 @@ function RecordStrip({ record }: { record: BetsRecord }) {
   }
   return (
     <section data-record-strip className="mb-8 max-w-[65ch]">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-3 gap-4">
         <Stat
           label={<Term k="settled">Settled</Term>}
           value={settled}
@@ -397,20 +427,18 @@ function RecordStrip({ record }: { record: BetsRecord }) {
           value={withExpected.length === 0 ? "—" : wonSum}
           sub={rangeWords === "" ? undefined : rangeWords.trim()}
         />
-        <Stat
-          label={<Term k="net">Net</Term>}
-          value={
-            <span
-              className={
-                netInk(record.totals.net_tenths)
-              }
-            >
-              {netShown(record.totals.net_tenths, record.totals.net_display)}
-            </span>
-          }
-          sub={`over ${record.totals.computable} settled`}
-        />
       </div>
+      <p className="mt-2 max-w-[65ch] text-xs text-muted" data-kind-share>
+        Of the {settled} settled: {singlesSettled}{" "}
+        {singlesSettled === 1 ? "single" : "singles"}, {combosSettled}{" "}
+        {combosSettled === 1 ? "combination" : "combinations"}.
+      </p>
+      {rangeCount > 0 && (
+        <p className="mt-1 max-w-[65ch] text-xs text-muted" data-range-count>
+          {rangeCount} {rangeCount === 1 ? "range" : "ranges"} on this page;
+          one landing outside by luck alone is normal.
+        </p>
+      )}
       {sourceOrder.length > 0 && (
         <ul className="mt-3 space-y-1 font-mono text-xs text-muted" data-source-rows>
           {sourceOrder.map((source) => (
@@ -780,7 +808,7 @@ function ByLegKindBlock({ data }: { data: ByLegKind | undefined }) {
               <li key={block.kind}>
                 {block.kind}: {block.settled} settled
                 {block.expected.n > 0
-                  ? ` · at the price paid about ${block.expected.expected} expected to win, ${block.expected.won} did`
+                  ? ` · about ${block.expected.expected} expected to win, ${block.expected.won} did`
                   : ""}
                 {block.expected.n > 0
                   ? block.expected.too_few
@@ -807,10 +835,10 @@ function ByLegKindBlock({ data }: { data: ByLegKind | undefined }) {
         </div>
       ))}
       <p className="mt-2 max-w-prose">
-        Each leg&rsquo;s own price is read as its chance, so this counts how a
-        kind of leg did against the prices you paid. It says nothing about
-        skill, and it needs about five expected wins and five expected losses
-        in a row before it can say even that.
+        {LEG_PRICE_LABEL} Each leg&rsquo;s own price is read as its chance, so
+        this counts how a kind of leg did against those prices. It says
+        nothing about skill, and it needs about five expected wins and five
+        expected losses in this cell before it can say even that.
       </p>
     </details>
   );
