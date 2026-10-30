@@ -1,6 +1,5 @@
 import {
   ApiError,
-  DISPLAY_TIME_ZONE,
   fetchRefreshable,
   fetchSignal,
   fetchSlate,
@@ -22,7 +21,7 @@ import {
   slateIsUnpricedByTheClock,
 } from "@/lib/nextOddsWindow";
 import { refreshIsUrgent } from "@/lib/refreshUrgency";
-import { formatAgeShort } from "@/lib/format";
+import { formatAgeShort, formatKickoff } from "@/lib/format";
 import Link from "next/link";
 
 import AnchorBaseRate from "@/components/AnchorBaseRate";
@@ -146,7 +145,7 @@ export default async function SlatePage({
     );
   }
 
-  const { rows, counts, slate } = data;
+  const { rows, slate } = data;
   const sharedEvidence = sharedEvidenceDetails(rows);
   const hidden = data.filter?.hidden ?? 0;
 
@@ -239,7 +238,7 @@ export default async function SlatePage({
           a bettor cannot act on tonight. On the slate + Bettable answer the
           two questions a glance actually asks: how many games, and did
           anything clear the bar. */}
-      <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4">
+      <dl className="mt-8 grid grid-cols-1 gap-x-6 gap-y-4">
         {/* "Showing N of M", not a bare N: the list is cut at the server's
             LIMIT, so a bare 100 read as the size of the slate when 611 rows
             were in the window. `in_window` is the count before the cut and
@@ -248,7 +247,6 @@ export default async function SlatePage({
           label="Showing"
           value={`${slate.returned} of ${Math.max(slate.in_window, slate.returned)}`}
         />
-        <Stat label="Bettable" value={counts.surfaced} />
       </dl>
 
       {/* The panel takes the top slot only when it can fix what the reader
@@ -383,7 +381,7 @@ export default async function SlatePage({
             Signal test
           </span>
           <span className="font-mono font-semibold">
-            {signal.available ? signal.verdict : "not computable here"}
+            {signal.available ? signal.verdict : "the registered test ended UNRESOLVED on 2026-10-01"}
           </span>
           <Link href="/gate#signal-test" className="text-muted hover:underline">
             details on Gate &rarr;
@@ -456,9 +454,11 @@ export default async function SlatePage({
           <strong className="text-foreground">
             The gap between those two numbers is not profit.
           </strong>{" "}
-          A fee sits between them: pay 50c and the bet has to win about{" "}
-          <Term k="breakeven">51.75%</Term> of the time before you are even, not
-          50%. So a fair value a little above the ask is the normal state of a
+          A fee sits between them: pay 50c and the bet has to win more than
+          50% before you are even &mdash; about{" "}
+          <Term k="breakeven">51.75%</Term> at the fee rate this desk assumes;
+          baseball fills have been charged less (about 50.9%), and whether
+          Kalshi charges anything at payout is unchecked. So a fair value a little above the ask is the normal state of a
           working market, not an opportunity. And this project spent months
           measuring whether the remainder pays after the fee —{" "}
           <Term k="clv">it does not</Term>, on every test it could run. The two
@@ -507,7 +507,23 @@ function gameEventOf(ticker: string): string | null {
   return match ? match[1] : null;
 }
 
-const PRICE_CLASS = "tabular text-sm text-muted";
+const PRICE_CLASS = "tabular text-sm";
+
+/** Mirror of `backend/parlays.py` `PROBABLE_BUG_CODES` (J2, #403 (A)): a row
+ *  whose `suppressed_reason` names one of these has a fair value the desk
+ *  itself calls a probable bug. tests/test_palette_contrast.py compares the
+ *  two lists, so they cannot drift. */
+const PROBABLE_BUG_CODES = new Set([
+  "suspicious_edge",
+  "too_few_books",
+  "no_market_width",
+]);
+
+function fairIsUntrusted(reason: string | null | undefined): boolean {
+  return (reason ?? "")
+    .split(",")
+    .some((code) => PROBABLE_BUG_CODES.has(code.trim()));
+}
 
 /** `core/trust.py` age checks; the Games row voices these in its quote chip. */
 const AGE_CHECK_NAMES = new Set(["consensus_fresh", "quote_fresh"]);
@@ -577,10 +593,14 @@ function Row({
   // Every diagnostic (books, size, drift, width, the readings strip, the
   // evidence line) is behind the one `Details` disclosure.
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
-          {kickoff(row.commence_ms)}
+    <div className="rounded-lg border border-border bg-card p-3 xl:flex xl:flex-wrap xl:items-baseline xl:gap-x-4 xl:gap-y-1">
+      {/* One line at xl (#7): time, league, team, ask, fair, ages, code, then
+          the actions on the right. The two wrappers are `display: contents` at
+          xl so every item sits in the card's one flex line; below xl they are
+          the phone's stacked lines. Wraps, never truncates. */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 xl:contents">
+        <span className="tabular w-24 shrink-0 font-mono text-xs text-muted">
+          {row.commence_ms ? formatKickoff(row.commence_ms) : "--:--"}
         </span>
         <LeagueTag league={row.league} />
         {/* Wraps, never truncates (#386): a clipped name is a different team. */}
@@ -595,21 +615,17 @@ function Row({
             {subject.how}
           </span>
         )}
-        <span className="ml-auto hidden shrink-0 sm:inline-flex">
-          <CrewBubble row={row} />
-        </span>
       </div>
 
-      {/* Ask and fair at equal weight: one class for both. Two plain numbers,
-          no sign, no tone, and never a break-even beside fair (ADR 0071
-          section 2.2). */}
-      <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <span className={PRICE_CLASS}>
+      {/* Ask and fair at equal size. Ask is in foreground ink; fair is
+          brightened only together with its age (the oldest book line behind
+          it), and dimmed with a reason when its refusal code is a probable
+          bug (J2). Never a break-even beside fair (ADR 0071 section 2.2). */}
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 xl:contents">
+        <span className={`${PRICE_CLASS} text-foreground`}>
           {row.ask_display} <Term k="ask">ask</Term>
         </span>
-        <span className={PRICE_CLASS}>
-          {row.fair_percent_display ?? "--"} <Term k="consensus">fair</Term>
-        </span>
+        <FairSpan row={row} />
         <QuoteAge ageMs={row.quote_age_now_ms} maxMs={maxQuoteAgeMs} />
         <Anchor anchored={row.anchored_on_sharp} />
       </div>
@@ -619,7 +635,7 @@ function Row({
 
       {/* The code, verbatim, and where it is explained (#16A, #31). */}
       {row.suppressed_reason && (
-        <span className="mt-1 flex w-full flex-wrap items-baseline gap-x-2">
+        <span className="mt-1 flex w-full flex-wrap items-baseline gap-x-2 xl:mt-0 xl:w-auto">
           <span className="min-w-0 break-words font-mono text-xs text-accent-2">
             {row.suppressed_reason}
           </span>
@@ -634,7 +650,7 @@ function Row({
       )}
 
       {/* The actions, inside the card and above its divider. */}
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-2 xl:ml-auto xl:mt-0 xl:shrink-0">
         <ManualTicket
           ticker={row.ticker}
           variant="inline"
@@ -642,7 +658,7 @@ function Row({
           closedNote={false}
         />
         {gameEventOf(row.ticker) && (
-          <span className="block">
+          <span>
             <Link
               href={`/game/${encodeURIComponent(gameEventOf(row.ticker) as string)}`}
               className="text-xs text-accent underline"
@@ -653,7 +669,7 @@ function Row({
         )}
       </div>
 
-      <details className="mt-3 border-t border-border pt-2">
+      <details className="mt-3 border-t border-border pt-2 xl:w-full">
         <summary className="cursor-pointer text-xs font-semibold text-muted">
           Details
         </summary>
@@ -812,6 +828,43 @@ function booksUnderFigure(
 }
 // BOOKS-UNDER-FIGURE-END
 
+/**
+ * The fair value, always with the age of the books behind it.
+ *
+ * `odds_age_now_ms` is `(now - computed_ms) + oldest_book_age_ms`
+ * (`core/ladder.py`): the oldest book line's own age, not the age of our read.
+ * Missing age renders no age text and the fair stays muted: brightening a
+ * number whose age is unknown would be the thing this chip exists to prevent.
+ * A probable-bug code dims it regardless and says why.
+ */
+function FairSpan({ row }: { row: SlateRowData }) {
+  const untrusted = fairIsUntrusted(row.suppressed_reason);
+  const age = row.odds_age_now_ms;
+  const hasAge = typeof age === "number" && age >= 0;
+  const ink = hasAge && !untrusted ? "text-foreground" : "text-muted";
+  return (
+    <span className={`${PRICE_CLASS} ${ink}`}>
+      {row.fair_percent_display ?? "--"} <Term k="consensus">fair</Term>
+      {hasAge && (
+        <span className="ml-1 text-xs text-muted">
+          &middot; oldest book line {formatAgeShort(age)}
+        </span>
+      )}
+      {untrusted && (
+        <>
+          {" "}
+          <Link
+            href={whyRefusedHref(row.ticker)}
+            className="text-xs text-accent-2 underline"
+          >
+            fair not trusted &mdash; why &rarr;
+          </Link>
+        </>
+      )}
+    </span>
+  );
+}
+
 function Books({ row }: { row: SlateRowData }) {
   // The figure counts the anchored books when the fair price was anchored
   // (#375, Joe's A to #373); `row.books` stays the unanchored distribution
@@ -952,7 +1005,7 @@ function StatusLine({
     row.odds_age_now_ms !== undefined &&
     row.odds_age_now_ms > maxOddsAgeMs
   ) {
-    line = `Books last read ${Math.round((row.odds_age_now_ms ?? 0) / 60_000)} min ago — past the ${Math.round(maxOddsAgeMs / 60_000)} min limit. Not actionable until the odds are refreshed.`;
+    line = `Oldest book line ${Math.round((row.odds_age_now_ms ?? 0) / 60_000)} min old — past the ${Math.round(maxOddsAgeMs / 60_000)} min limit. Not actionable until the odds are refreshed.`;
   } else if (
     row.kalshi_drift_tenths !== null &&
     Math.abs(row.kalshi_drift_tenths) >= 10
@@ -1110,16 +1163,6 @@ function Width({ width }: { width: number | null | undefined }) {
  * Nothing is corrected here: `--:--` means the row has no linked fixture and
  * therefore no trustworthy kickoff, which is a blank on purpose. Ticket #26.
  */
-function kickoff(ms: number | null): string {
-  if (ms === null) return "--:--";
-  return new Date(ms).toLocaleTimeString("en-US", {
-    timeZone: DISPLAY_TIME_ZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
-
 function Stat({ label, value }: { label: string; value: number | string }) {
   /* The HUD's lit readout (#174, Joe's #173 (A)): the same "glow" text-shadow
      and indigo ink `ui.tsx`'s `Stat` draws with `readout` set, on the two
