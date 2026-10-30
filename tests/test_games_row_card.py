@@ -84,7 +84,10 @@ class TestTheBetActionRendersInsideItsRowsCard:
 
     def test_ask_and_fair_share_one_class_and_no_break_even_appears(self):
         row = _code(_row_body(_src()))
-        assert row.count("className={PRICE_CLASS}") == 2
+        # #409: ask in foreground ink; fair's ink depends on its age and trust.
+        assert row.count("PRICE_CLASS") == 1 and "<FairSpan row={row} />" in row
+        fair = _code(_function(_src(), "FairSpan"))
+        assert fair.count("PRICE_CLASS") == 1
         assert "breakeven_win_rate" not in _code(_src())
 
 

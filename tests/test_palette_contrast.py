@@ -281,3 +281,90 @@ class TestTheNeutralCountIsNotPaintedAsAVerdict:
                 )
             stat_body = page.split("function Stat(", 1)[1].split("\n}", 1)[0]
             assert "text-negative" not in stat_body
+
+
+SLATE_PAGE = GLOBALS.parent / "slate" / "page.tsx"
+BACKEND_PARLAYS = Path(__file__).resolve().parents[1] / "backend" / "parlays.py"
+
+
+def _slate() -> str:
+    return SLATE_PAGE.read_text(encoding="utf-8").replace("\r\n", "\n")
+
+
+class TestGamesRowTellsTheAgeAndTheTrust:
+    """#409 (town hall 2026-10-30): J1 (A) no Bettable, J2 (A) untrusted fair.
+
+    Establishes source shape of `slate/page.tsx` only; it does not render the
+    row or measure pixels.
+    """
+
+    def test_no_stat_is_named_bettable_and_showing_survives(self):
+        page = _slate()
+        assert not re.search(r'<Stat\s+label="Bettable"', page)
+        assert 'label="Showing"' in page
+        assert "counts.surfaced" not in page
+
+    def test_the_fair_span_always_carries_the_oldest_book_line_age(self):
+        fn = _slate().split("function FairSpan(", 1)[1].split("\nfunction ", 1)[0]
+        assert "row.odds_age_now_ms" in fn
+        assert "oldest book line {formatAgeShort(age)}" in fn
+        # Nothing when the age is missing; brightened only with an age.
+        assert 'hasAge && !untrusted ? "text-foreground" : "text-muted"' in fn
+        assert "{hasAge && (" in fn
+
+    def test_ask_is_in_foreground_ink(self):
+        page = _slate()
+        assert "className={`${PRICE_CLASS} text-foreground`}" in page
+        assert 'const PRICE_CLASS = "tabular text-sm";' in page
+
+    def test_foreground_and_muted_clear_aa_on_card_in_every_theme(self):
+        css = GLOBALS.read_text(encoding="utf-8")
+        for name, tokens in _blocks(css).items():
+            for ink in ("--foreground", "--muted"):
+                assert contrast(tokens[ink], tokens["--card"]) >= 4.5, (name, ink)
+
+    def test_probable_bug_codes_mirror_the_backend_list(self):
+        backend = BACKEND_PARLAYS.read_text(encoding="utf-8")
+        py = set(
+            re.findall(
+                r'"(\w+)"',
+                re.search(
+                    r"PROBABLE_BUG_CODES: frozenset\[str\] = frozenset\(\s*\{(.*?)\}",
+                    backend,
+                    re.S,
+                ).group(1),
+            )
+        )
+        ts_block = re.search(
+            r"const PROBABLE_BUG_CODES = new Set\(\[(.*?)\]\)", _slate(), re.S
+        ).group(1)
+        assert set(re.findall(r'"(\w+)"', ts_block)) == py and py
+
+    def test_bug_class_rows_render_fair_dimmed_with_fair_not_trusted(self):
+        fn = _slate().split("function FairSpan(", 1)[1].split("\nfunction ", 1)[0]
+        assert "fairIsUntrusted(row.suppressed_reason)" in fn
+        assert "fair not trusted &mdash; why &rarr;" in fn
+        assert "whyRefusedHref(row.ticker)" in fn
+
+    def test_the_stale_line_and_signal_and_fee_copy_say_the_new_words(self):
+        page = _slate()
+        assert "Oldest book line ${" in page and "Books last read" not in page
+        assert "the registered test ended UNRESOLVED on 2026-10-01" in page
+        assert '"not computable here"' not in page
+        assert "at the fee rate this desk assumes" in page
+        assert "baseball fills have been charged less (about 50.9%)" in page
+        assert "whether\n          Kalshi charges anything at payout is unchecked" in page
+
+    def test_kickoff_uses_the_shared_formatter_in_a_wide_slot(self):
+        page = _slate()
+        assert "formatKickoff(row.commence_ms)" in page
+        assert "tabular w-12" not in page
+        assert "function kickoff(" not in page
+
+    def test_the_bet_button_stays_and_the_desk_pill_has_a_word(self):
+        page = _slate()
+        assert "<ManualTicket" in page
+        crew = (GLOBALS.parent.parent / "components" / "CrewBubble.tsx").read_text(
+            encoding="utf-8"
+        )
+        assert re.search(r"^\s+desk notes\s*$", crew, re.M)

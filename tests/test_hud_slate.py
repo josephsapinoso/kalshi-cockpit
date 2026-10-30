@@ -91,7 +91,8 @@ class TestHeadlineNumbersDrawTheHudReadout:
     def test_both_headline_stats_are_mounted(self):
         source = _read(SLATE_PAGE)
         assert re.search(r'<Stat\s+label="Showing"[^/]*/>', source)
-        assert re.search(r'<Stat label="Bettable"[^/]*/>', source)
+        # #409 / J1 (A, #402): Bettable came off, it was 0 of 100 on live.
+        assert not re.search(r'<Stat label="Bettable"', source)
 
 
 class TestAPanelGetsTheCornerBrackets:

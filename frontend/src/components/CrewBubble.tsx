@@ -191,7 +191,7 @@ export default function CrewBubble({ row }: { row: SlateRowData }) {
         aria-label="What the desk found"
         className="rounded-full border border-border px-2 py-0.5 font-mono text-[0.65rem] text-muted transition-colors hover:border-accent/50 hover:text-accent"
       >
-        desk
+        desk notes
       </button>
 
       {open && (
