@@ -56,3 +56,25 @@ def test_general_note_is_not_under_a_league_heading():
     assert 'All leagues</h3>' in PANEL[last_h3 : i]
     # and that heading is not the per-sport one
     assert "leagueLabel(sport.sport_key)" not in PANEL[last_h3:i]
+
+
+class TestGamesPassesCompactOnlyOnTheUrgentRender:
+    """#412's prop does nothing unless the call site passes it: the panel on
+    top of Games (the urgent render) is compact, the one below the rows is
+    not."""
+
+    def test_the_urgent_render_is_compact_and_the_demoted_one_is_not(self):
+        from pathlib import Path
+
+        page = (
+            Path(__file__).resolve().parents[1]
+            / "frontend" / "src" / "app" / "slate" / "page.tsx"
+        ).read_text(encoding="utf-8")
+        urgent = page.index("{refreshIsUrgent(")
+        demoted = page.index("{!refreshIsUrgent(")
+        assert urgent < demoted
+        top = page[urgent:demoted]
+        below = page[demoted:]
+        assert 'pathname="/slate" compact />' in top
+        assert 'pathname="/slate" compact />' not in below
+        assert 'pathname="/slate" />' in below

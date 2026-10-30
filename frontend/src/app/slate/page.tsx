@@ -261,7 +261,7 @@ export default async function SlatePage({
         rows,
         data.staleness.max_odds_age_s * 1000,
         slate.is_current,
-      ) && <RefreshOddsPanel actionable={actionable} filter={filter} pathname="/slate" />}
+      ) && <RefreshOddsPanel actionable={actionable} filter={filter} pathname="/slate" compact />}
 
       {/* The parlay desk (ADR 0070) sits one tap from the picks it is built
           from. A plain link, deliberately: no card preview, no percentage,
