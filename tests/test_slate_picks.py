@@ -11,6 +11,8 @@ renders a stored, unscored column; nothing here scores it against an outcome.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -40,6 +42,7 @@ def _pick_row(
     market_type: str | None = None,
     player_name: str | None = None,
     commence_ms: int | None = None,
+    suppressed_reason: str | None = None,
 ) -> None:
     """One recommendation shaped for the picks block, positioned in time.
 
@@ -95,9 +98,9 @@ def _pick_row(
         "reference_contracts, kalshi_quote_age_ms, odds_age_ms, link_id, "
         "suppressed_reason, reason_text) "
         "VALUES (?, 1, ?, ?, ?, ?, 1.0, 0.1, 0.0, 0.0, 0, 0, ?, ?, ?, "
-        "NULL, 'test row')",
+        "?, 'test row')",
         (created_ms, ticker, side, ask_tenths, fair, quote_age_ms,
-         odds_age_ms, link_id),
+         odds_age_ms, link_id, suppressed_reason),
     )
 
 
@@ -448,3 +451,81 @@ class TestAStaleAskSaysItsAgeAndAStartedGameSaysSo:
         assert [p["started_ago_ms"] is not None for p in ranked] == [
             True, True, False
         ]
+
+
+_ROOT = Path(__file__).resolve().parent.parent
+_COMPONENT = _ROOT / "frontend" / "src" / "components" / "GoodChancePicks.tsx"
+_PICKS_PAGE = _ROOT / "frontend" / "src" / "app" / "picks" / "page.tsx"
+
+
+def _src(path: Path) -> str:
+    return path.read_text(encoding="utf-8").replace(chr(13) + chr(10), chr(10))
+
+
+class TestAPickOnARefusedRowWearsTheRefusal:
+    """#408 (J3): live, 2 of 7 picks sat on suppressed rows and read clean.
+
+    Establishes the code travels verbatim and the row is neither dropped nor
+    moved. Does not establish how the screen looks; the source pins below
+    only show the component reads the field and links to the why screen.
+    """
+
+    async def test_a_suppressed_row_carries_its_code_and_a_clean_one_none(
+        self, build
+    ):
+        base = now_ms() - 60_000
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXR-1", created_ms=base, odds_event_id="g1",
+                      commence_ms=base + 3_600_000,
+                      suppressed_reason="too_few_books,no_market_width"),
+            _pick_row(conn, ticker="KXC-1", created_ms=base, odds_event_id="g2",
+                      commence_ms=base + 7_200_000),
+        ])
+        ranked = (await get(app, "/api/slate")).json()["picks"]["ranked"]
+        by_ticker = {p["ticker"]: p for p in ranked}
+        assert by_ticker["KXR-1"]["suppressed_reason"] == (
+            "too_few_books,no_market_width"
+        )
+        assert by_ticker["KXC-1"]["suppressed_reason"] is None
+        # Nothing hidden and nothing reordered: kickoff order, both present.
+        assert [p["ticker"] for p in ranked] == ["KXR-1", "KXC-1"]
+
+    def test_the_component_prints_the_code_and_links_to_why(self):
+        source = _src(_COMPONENT)
+        assert "suppressed_reason" in source
+        assert "whyRefusedHref(pick.ticker)" in source
+        assert "glossSentence(" in source
+
+    def test_the_component_does_not_filter_or_sort_on_the_refusal(self):
+        source = _src(_COMPONENT)
+        # Every use of refusal() is a render guard (`refusal(pick) !== null &&`)
+        # or a gloss lookup; none is a .filter/.sort/.map over the list.
+        assert ".sort(" not in source
+        assert "refusal(pick) === null" not in source
+        assert ".filter((pick) => refusal" not in source
+
+
+class TestTheSharpBookBoxOnlyWhenSomePicksLackOne:
+    def test_the_box_is_gated_on_some_pick_lacking_a_sharp_book(self):
+        source = _src(_PICKS_PAGE)
+        assert (
+            "picks.ranked.some((pick) => pick.anchored_on_sharp !== true)"
+            in source
+        )
+        gate = source.index("pick.anchored_on_sharp !== true")
+        assert gate < source.index("<PicksAnchorBaseRate")
+
+
+class TestTheGamesNoteSaysTheScoringEndedUnresolved:
+    async def test_the_note_names_the_result_and_drops_the_old_promise(
+        self, build
+    ):
+        """The old sentence promised scoring "one day"; the registered scoring
+        ended UNRESOLVED on 2026-10-01 (#226)."""
+        app = build(lambda conn: [
+            _pick_row(conn, ticker="KXN-1", created_ms=now_ms() - 60_000),
+        ])
+        # The Games note rides the same /api/slate payload's window block.
+        body = (await get(app, "/api/slate")).text
+        assert "ended UNRESOLVED on 2026-10-01" in body
+        assert "so they can be scored one day" not in body

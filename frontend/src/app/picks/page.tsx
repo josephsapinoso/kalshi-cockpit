@@ -268,7 +268,12 @@ export default async function PicksPage({
               totals too. The block prints no total across leagues — that
               would be both the pooled number it exists to refuse and the
               ranked-count headline #8 forbids on this screen. */}
-          <PicksAnchorBaseRate ranked={picks.ranked} />
+          {/* J3 (#408): the box is a warning about soft-fallback picks, so it
+              renders only when some pick lacks a sharp book behind it. When
+              every pick is anchored it would be a box saying all is well. */}
+          {picks.ranked.some((pick) => pick.anchored_on_sharp !== true) && (
+            <PicksAnchorBaseRate ranked={picks.ranked} />
+          )}
           <GoodChancePicks picks={picks} />
         </>
       )}

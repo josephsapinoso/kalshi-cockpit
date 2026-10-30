@@ -1,7 +1,7 @@
 import Link from "next/link";
 
-import { DISPLAY_TIME_ZONE } from "@/lib/api";
-import { ageWords } from "@/lib/format";
+import { ageWords, displayZoneLabel, formatKickoff } from "@/lib/format";
+import { glossSentence, whyRefusedHref } from "@/lib/suppressionGloss";
 import type { SlatePicks } from "@/lib/api";
 import LeagueTag from "@/components/LeagueTag";
 import Term from "@/components/Term";
@@ -44,6 +44,11 @@ import Term from "@/components/Term";
  *   whose `started_ago_ms` the server sent says so in the same muted
  *   register. Nothing is reordered, filtered or gated on it (the order is
  *   kickoff alone, which already puts a started game first).
+ * - **A pick on a refused row wears the refusal** (#408, the 2026-10-30 town
+ *   hall, J3). The server sends the row's stored `suppressed_reason`
+ *   verbatim; the row prints the code in monospace, its plain sentence, and
+ *   the same "why →" link the Games rows carry. Nothing is hidden or moved.
+ *   A row with no reason prints nothing.
  */
 export default function GoodChancePicks({
   picks,
@@ -96,7 +101,7 @@ export default function GoodChancePicks({
               key={pick.ticker}
               className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2"
             >
-              <span className="tabular w-12 shrink-0 font-mono text-xs text-muted">
+              <span className="tabular shrink-0 font-mono text-xs text-muted">
                 {kickoff(pick.commence_ms)}
               </span>
               {typeof pick.started_ago_ms === "number" && (
@@ -140,6 +145,25 @@ export default function GoodChancePicks({
                    chance beside it, equal and not bigger (#17, #387). */
                 <span className="tabular text-sm font-semibold">
                   {`${pick.ask_display} ask`}
+                </span>
+              )}
+              {refusal(pick) !== null && (
+                <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                  <span className="font-mono text-accent-2">
+                    {refusal(pick)}
+                  </span>
+                  {glossSentence(refusal(pick)) !== null && (
+                    <span className="text-muted">
+                      {glossSentence(refusal(pick))}
+                    </span>
+                  )}
+                  <Link
+                    href={whyRefusedHref(pick.ticker)}
+                    aria-label="Why this was refused, on the game screen"
+                    className="shrink-0 text-muted underline"
+                  >
+                    why &rarr;
+                  </Link>
                 </span>
               )}
               {pick.anchored_on_sharp === false && (
@@ -191,13 +215,19 @@ function lastAsk(pick: { last_ask_display?: string | null }): string | null {
   return typeof pick.last_ask_display === "string" ? pick.last_ask_display : null;
 }
 
-/** Pacific, matching the slate rows' kickoff column. */
+/**
+ * The engine's stored refusal on this pick's row, or null when it was not
+ * refused. Read off the wire as an optional field: the shared `SlatePick`
+ * type lives outside this lane and a backend one version behind omits it.
+ */
+function refusal(pick: object): string | null {
+  const reason = (pick as { suppressed_reason?: string | null })
+    .suppressed_reason;
+  return typeof reason === "string" && reason.length > 0 ? reason : null;
+}
+
+/** Day, time and zone ("Fri 12:08 PM PDT"), the format every other screen uses. */
 function kickoff(ms: number | null): string {
   if (ms === null) return "--:--";
-  return new Date(ms).toLocaleTimeString("en-US", {
-    timeZone: DISPLAY_TIME_ZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return `${formatKickoff(ms)} ${displayZoneLabel(ms)}`;
 }
