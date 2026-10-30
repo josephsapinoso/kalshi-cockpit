@@ -1756,6 +1756,12 @@ def create_app(
                             else None
                         ),
                         "anchored_on_sharp": best["anchored_on_sharp"],
+                        # The refusal the engine stored on this pick's row,
+                        # verbatim and comma-joined (#408, J3): a pick on a
+                        # suppressed row used to read as clean. A fact the
+                        # row wears; nothing is hidden, reordered or gated
+                        # on it. `None` when the row was not refused.
+                        "suppressed_reason": best["suppressed_reason"],
                     },
                 )
             )
@@ -1947,9 +1953,10 @@ def create_app(
             # #344); the meaning -- no column here is added up into a pick --
             # is now said in those words.
             "note": (
-                "None of these figures has been scored against an outcome, "
-                "and none of them is added up into a pick. They are recorded "
-                "so they can be scored one day."
+                "None of these figures is added up into a pick. They were "
+                "scored against outcomes under a registration that ended "
+                "UNRESOLVED on 2026-10-01: it found no signal and did not "
+                "rule one out."
             ),
         }
         # The cut, echoed, ONLY when one was applied: the key is absent
