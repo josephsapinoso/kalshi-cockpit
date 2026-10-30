@@ -379,6 +379,9 @@ export type SlateRowData = Recommendation & {
  */
 export type SlatePick = {
   ticker: string;
+  /** The row's stored refusal code(s), comma-joined; null when the desk
+   *  did not refuse it (town hall #408). Shown, never filtered on. */
+  suppressed_reason?: string | null;
   event_title: string | null;
   team: string | null;
   /** Sport key of the linked fixture; optional for a backend one version behind. */

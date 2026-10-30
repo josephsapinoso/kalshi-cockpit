@@ -456,6 +456,7 @@ class TestAStaleAskSaysItsAgeAndAStartedGameSaysSo:
 _ROOT = Path(__file__).resolve().parent.parent
 _COMPONENT = _ROOT / "frontend" / "src" / "components" / "GoodChancePicks.tsx"
 _PICKS_PAGE = _ROOT / "frontend" / "src" / "app" / "picks" / "page.tsx"
+_PICKS_ANCHOR = _ROOT / "frontend" / "src" / "components" / "PicksAnchorBaseRate.tsx"
 
 
 def _src(path: Path) -> str:
@@ -508,13 +509,14 @@ class TestAPickOnARefusedRowWearsTheRefusal:
 
 class TestTheSharpBookBoxOnlyWhenSomePicksLackOne:
     def test_the_box_is_gated_on_some_pick_lacking_a_sharp_book(self):
-        source = _src(_PICKS_PAGE)
-        assert (
-            "picks.ranked.some((pick) => pick.anchored_on_sharp !== true)"
-            in source
+        """The gate lives in the component, which is already a listed
+        aggregate surface for the flag, and runs before anything renders."""
+        source = _src(_PICKS_ANCHOR)
+        gate = source.index(
+            "if (!ranked.some((pick) => pick.anchored_on_sharp !== true)) return null;"
         )
-        gate = source.index("pick.anchored_on_sharp !== true")
-        assert gate < source.index("<PicksAnchorBaseRate")
+        assert gate < source.index("bucketPicksByLeague(ranked)")
+        assert "anchored_on_sharp" not in _src(_PICKS_PAGE)
 
 
 class TestTheGamesNoteSaysTheScoringEndedUnresolved:

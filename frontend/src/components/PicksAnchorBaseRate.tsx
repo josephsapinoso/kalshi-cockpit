@@ -149,6 +149,10 @@ export default function PicksAnchorBaseRate({
 }: {
   ranked: readonly SlatePick[];
 }) {
+  // Town hall J3 (A), #404: when every pick has a sharp book behind it the
+  // box only says all is well, so it renders only when some pick lacks one.
+  // An unreadable (null) flag counts as lacking one.
+  if (!ranked.some((pick) => pick.anchored_on_sharp !== true)) return null;
   const buckets = bucketPicksByLeague(ranked);
   if (buckets.length === 0) return null;
 

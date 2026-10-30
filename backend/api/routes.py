@@ -1955,8 +1955,8 @@ def create_app(
             "note": (
                 "None of these figures is added up into a pick. They were "
                 "scored against outcomes under a registration that ended "
-                "UNRESOLVED on 2026-10-01: it found no signal and did not "
-                "rule one out."
+                "UNRESOLVED on 2026-10-01: no evidence of an edge, which is "
+                "not proof there is none."
             ),
         }
         # The cut, echoed, ONLY when one was applied: the key is absent
