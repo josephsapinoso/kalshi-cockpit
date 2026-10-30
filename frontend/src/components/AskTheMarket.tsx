@@ -174,8 +174,7 @@ export default function AskTheMarket({
 
       {state.kind === "asking" && (
         <p className="text-sm text-muted">
-          Asking the market&hellip; makers usually answer in well under a
-          second.
+          Asking the market&hellip;
         </p>
       )}
 

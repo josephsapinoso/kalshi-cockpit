@@ -8,11 +8,10 @@
  * consecutive passes, so the screen a phone opens on was the one screen
  * guaranteed to be empty — while the screen Joe asked for on 2026-08-09
  * (`/slate`, its own docstring records the request) sat behind a nav word a
- * beginner cannot tell from three others. The Board still exists, one tap
- * away at `/board`, and is linked from the footer. (Until 2026-08-29 this
- * sentence added "exactly as `/builder`, `/rejections` and `/dashboards` are
- * still served from their old paths". Only `/dashboards` still exists; the
- * other two were deleted, and Nav.tsx carries the correction.)
+ * beginner cannot tell from three others. The Board is gone: `/board`,
+ * `/ledger`, `/dashboards` and `/estimate` were removed 2026-10-10 (ADR 0195,
+ * Joe's (A) to #351), so nothing is "one tap away" and the footer links none
+ * of them.
  *
  * A re-export rather than a copy: two routes rendering one component cannot
  * drift apart, which is this repo's two-implementations rule applied to a

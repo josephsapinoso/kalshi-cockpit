@@ -23,15 +23,15 @@ export const GLOSSARY = {
     label: "request for quote",
     definition:
       "How a combination is priced on Kalshi: you ask, and market makers " +
-      "send back private prices for a few seconds. That is why a combo's " +
+      "send back private prices. That is why a combo's " +
       "order book usually looks empty — nobody rests a price there, they " +
       "answer when asked. Asking costs nothing.",
   },
   maker: {
     label: "market maker",
     definition:
-      "A firm that quotes you a price when you ask. Several usually " +
-      "answer at once and they rarely agree — on the first combination " +
+      "A firm that quotes you a price when you ask. Their prices can " +
+      "differ — on the first combination " +
       "this desk priced, three makers came back 3.8c apart on the same " +
       "contract, so the best one is worth reading.",
   },
@@ -207,10 +207,10 @@ export const GLOSSARY = {
   breakeven: {
     label: "break-even",
     definition:
-      "How often a bet at this price has to win for you to come out even, " +
-      "with Kalshi's fee already counted. Pay 50c and you need about 51.75% " +
-      "— not 50% — because the fee eats the difference. If you don't " +
-      "honestly think it wins more often than this number, pass.",
+      "How often a bet at this price must win to break even, fee counted. " +
+      "At 50c the desk assumes you need about 51.75%, not 50%; measured on " +
+      "baseball it is about 50.9%. Whether Kalshi also charges a fee when a " +
+      "bet pays out is unchecked. Don't think it wins more often? Pass.",
   },
   fee: {
     label: "fee",
@@ -371,9 +371,10 @@ export const GLOSSARY = {
   plausible_range: {
     label: "range",
     definition:
-      "Wins bounce around even when prices are fair, like heads in 40 coin " +
-      "flips. The range is where the win count lands about 19 times in 20 if " +
-      "the prices were fair, so 10 expected might read 4 to 16.",
+      "Wins bounce, like heads in 40 coin flips. The range is where " +
+      "the win count lands 19 times in 20 at fair prices: 10 expected reads " +
+      "4 to 16. The range treats each bet as separate. Bets that share " +
+      "a leg or a game win or lose together, so the real range is wider.",
   },
   too_few: {
     label: "too few to judge",
@@ -486,8 +487,8 @@ export const GLOSSARY = {
     label: "chance to win",
     definition:
       "The books' combined, margin-removed estimate of how often this side " +
-      "wins. 71% means: of 100 games like this, about 71. It is the best " +
-      "estimate available — and the price usually charges exactly for it.",
+      "wins. 71% means: of 100 games like this, about 71. It is the desk's best " +
+      "estimate — and the price usually charges exactly for it.",
   },
   scout_desk: {
     label: "scout desk",
@@ -531,8 +532,8 @@ export const GLOSSARY = {
   game_script_card: {
     label: "game-script card",
     definition:
-      "A short written story for one game, like \"a slow, low-scoring " +
-      "game\", with two or three picks that fit it and the news that " +
+      "A short story for each game and the same-game picks that fit it. " +
+      "For example, \"a slow, low-scoring game\", with the news that " +
       "would kill it. The desk writes it from who is playing, rest and " +
       "matchups. It is an opinion with sources, not a price.",
   },

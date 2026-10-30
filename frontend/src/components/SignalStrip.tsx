@@ -49,6 +49,29 @@ export default function SignalStrip({
   // measured zero would be worse than rendering nothing.
   if (!signal) return null;
 
+  // The registered test is over (Amendment 3, 2026-10-01). The live box has
+  // been frozen since, and on the live instance it answers `available:false`
+  // with a refusal. That refusal is about what this box recomputes on later
+  // rows; it is not a statement about the registered result, so this branch
+  // comes first and says what the record says: UNRESOLVED. No beta numbers
+  // here -- a recompute on later rows must not be read as the result.
+  if (!signal.available && signal.frozen) {
+    return (
+      <section className="rounded-2xl border border-edge bg-card px-5 py-3">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Signal test
+          </span>
+          <span className="font-mono text-sm font-semibold">UNRESOLVED</span>
+        </div>
+        <p className="mt-1.5 max-w-[65ch] text-sm leading-relaxed text-muted">
+          The registered test ended UNRESOLVED on 2026-10-01; what this box
+          recomputes on later rows is not that result.
+        </p>
+      </section>
+    );
+  }
+
   if (!signal.available) {
     return (
       <section className="rounded-2xl border border-edge bg-card px-5 py-3">
@@ -59,14 +82,6 @@ export default function SignalStrip({
           <span className="font-mono text-sm text-muted">not computable here</span>
         </div>
         <p className="mt-1.5 max-w-[65ch] text-sm leading-relaxed text-muted">
-          {/*
-            This is the demo instance's normal state, and saying so plainly
-            matters more than it looks. The seeded history has no book quotes
-            to join, so the registered half-spread control is missing on every
-            row and the precondition refuses. A screen that instead reported
-            the cluster count would publish `G = 420` — a *larger* number than
-            the live record's — off a database with no signal in it.
-          */}
           No look was taken: {signal.refusal ?? "the population failed a precondition."}{" "}
           A refusal is not a result, and it is not a small effect.
         </p>
@@ -138,9 +153,7 @@ export default function SignalStrip({
             */}
             <strong className="font-semibold text-foreground">Not yet resolved</strong> —
             and that is not the same as no signal. The registration forbids
-            declaring either way below {clusters_to_declare} games;{" "}
-            {clusters_remaining} to go. Every interval measured so far sits below
-            the threshold, but the rule says wait, so the screen says wait.
+            declaring either way below {clusters_to_declare} games.
           </>
         )}
       </p>
