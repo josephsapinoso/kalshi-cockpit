@@ -61,6 +61,7 @@ const LEAGUES: readonly string[] = [
   "americanfootball_ncaaf",
   "basketball_nba",
   "icehockey_nhl",
+  "basketball_ncaab",
 ];
 
 //: Kickoff windows, in hours. "Next three hours" is the ticket's own

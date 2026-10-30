@@ -7,6 +7,7 @@ Writes (with their request, via `capture_envelope.write_capture`):
   tests/fixtures/events_nhl_same_game.json       one fixture, three event tickers
   tests/fixtures/series_college_basketball.json  series catalogue slice
   tests/fixtures/markets_nba_game_rules.json     KXNBAGAME markets with rules_primary (#255, `--nba-rules`)
+  tests/fixtures/events_ncaamb_game.json         one open KXNCAAMBGAME event (#267/#360, `--ncaamb-event`)
 
 Does NOT establish: college-basketball EVENT tickers. The season was not open
 when this ran (2026-09-30), so `/events?series_ticker=KXNCAAMBGAME` returned no
@@ -76,9 +77,38 @@ def capture_nba_rules() -> int:
     return 0
 
 
+def capture_ncaamb_event() -> int:
+    """#267/#360: one real open men's-college-basketball event, with its request."""
+    fx = ROOT / "tests" / "fixtures"
+    series = "KXNCAAMBGAME"
+    with httpx.Client(timeout=30.0) as c:
+        got = events(c, series)
+    if not got:
+        print(f"REFUSED: no open {series} events; nothing to capture")
+        return 2
+    kept = sorted(got, key=lambda e: e["event_ticker"])[:1]
+    write_capture(
+        fx / "events_ncaamb_game.json",
+        {
+            "request": request_envelope(
+                endpoint=f"{BASE}/events",
+                params={"series_ticker": series, "status": "open", "limit": 200,
+                        "with_nested_markets": "true"},
+                note=f"{len(got)} open events returned; kept only {kept[0]['event_ticker']}",
+            ),
+            "endpoint": f"{BASE}/events",
+            "events": kept,
+        },
+    )
+    print("wrote", kept[0]["event_ticker"], "of", len(got))
+    return 0
+
+
 def main() -> int:
     if "--nba-rules" in sys.argv:
         return capture_nba_rules()
+    if "--ncaamb-event" in sys.argv:
+        return capture_ncaamb_event()
     fx = ROOT / "tests" / "fixtures"
     with httpx.Client(timeout=30.0) as c:
         got = {s: events(c, s) for s in NHL}

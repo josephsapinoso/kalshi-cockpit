@@ -337,12 +337,33 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "GET /series?category=Sports for titles, then GET /events per "
             "KXNFL series, kept to one fixture's event.",
     ),
+    "ncaab_names_kalshi.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "status"),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#360): "
+            "the Kalshi KXNCAAMBGAME page walk, names and kickoffs only.",
+    ),
+    "ncaab_names_books.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("sport_key",),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#360): "
+            "the Odds API /events fixture list for basketball_ncaab.",
+    ),
     "events_nhl_same_game.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("series_ticker", "status"),
         endpoint_in=("endpoint",),
         how="A `request` block via `capture_envelope.write_capture` (#251): "
             "the three series asked for and the fixture kept.",
+    ),
+    "events_ncaamb_game.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "status"),
+        endpoint_in=("endpoint",),
+        how="A `request` block via `capture_envelope.write_capture` (#267/#360): "
+            "GET /events?series_ticker=KXNCAAMBGAME, kept to one event.",
     ),
     "series_college_basketball.json": RecordsItsRequest(
         params_in=("request",),
@@ -744,12 +765,15 @@ UPGRADED_WRITERS: dict[str, tuple[str, ...]] = {
         "events_nhl_same_game.json",
         "series_college_basketball.json",
         "markets_nba_game_rules.json",
+        "events_ncaamb_game.json",
     ),
     "capture_team_names.py": (
         "nfl_names_kalshi.json",
         "nfl_names_books.json",
         "ncaaf_names_kalshi.json",
         "ncaaf_names_books.json",
+        "ncaab_names_kalshi.json",
+        "ncaab_names_books.json",
     ),
 }
 

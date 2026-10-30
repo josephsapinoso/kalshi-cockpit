@@ -29,6 +29,7 @@ const LEAGUES: Record<string, string> = {
   americanfootball_nfl: "NFL",
   americanfootball_ncaaf: "NCAA football",
   icehockey_nhl: "NHL",
+  basketball_ncaab: "NCAA basketball",
 };
 
 /** Kalshi's `competition` strings, exactly as Kalshi spells them, to the
@@ -42,6 +43,7 @@ const KALSHI_COMPETITIONS: Record<string, string> = {
   "Pro Basketball (M)": "basketball_nba",
   "Pro Basketball (W)": "basketball_wnba",
   "Pro Hockey": "icehockey_nhl",
+  "College Basketball (M)": "basketball_ncaab",
 };
 
 export function leagueLabel(sportKeyOrCompetition: string): string {
