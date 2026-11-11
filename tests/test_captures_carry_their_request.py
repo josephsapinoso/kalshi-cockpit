@@ -426,6 +426,24 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "meaningless without its window -- a missing bar is a bar outside "
             "start_ts..end_ts until proven otherwise.",
     ),
+    "combo_settled_market_with_legs.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("ticker",),
+        endpoint_in=("endpoint",),
+        how="Written through `capture_envelope.write_capture`: the `request` "
+            "block names `/markets/{ticker}` and the one ticker asked for. The "
+            "fixture's point is a PRESENCE (`mve_selected_legs` on a settled "
+            "combination), and the ticker says whose combination it is not.",
+    ),
+    "candlesticks_historical_archive.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("ticker", "start_ts", "end_ts", "period_interval"),
+        endpoint_in=("endpoint",),
+        how="Written through `capture_envelope.write_capture`: the archive "
+            "endpoint, the market and the window. The bars are truncated to "
+            "three and the note says so; a missing bar here is a truncated "
+            "one until the window is re-asked.",
+    ),
 
     # -- Not a capture: nothing third-party is stored verbatim ----------------
     "portfolio_balance_shape.json": NotACapture(

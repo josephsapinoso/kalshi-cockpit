@@ -20,7 +20,14 @@
 # `backfill-leg-prices-commit` WRITES the live database -- the five ADR 0194
 # columns on `parlay_position_legs`, NULLs only, never a money column and
 # never a table `gate.py` reads (ADR 0063). It needs the app name typed, like
-# a live deploy does. Everything else here is a read.
+# a live deploy does.
+#
+# `backfill-venue-combo-legs-commit` WRITES it too (ADR 0197): the legs,
+# results and candle prices of combinations bought off the desk, into
+# `venue_combo_legs` and `venue_combo_leg_refusals` only -- again never a
+# money column and never a table the gate reads. Same typed guard: every
+# instrument whose name ends `-commit` needs the app name. Everything else
+# here is a read.
 #
 # Required repository secret: FLY_API_TOKEN
 
@@ -43,8 +50,10 @@ on:
           - bets-summary
           - backfill-leg-prices-dry-run
           - backfill-leg-prices-commit
+          - backfill-venue-combo-legs-dry-run
+          - backfill-venue-combo-legs-commit
       confirm_live:
-        description: "For backfill-leg-prices-commit (a write), type the app name: kalshi-cockpit"
+        description: "For a -commit instrument (a write), type the app name: kalshi-cockpit"
         required: false
         default: ""
         type: string
@@ -71,10 +80,10 @@ jobs:
           exit 1
 
       - name: Guard the write
-        if: inputs.instrument == 'backfill-leg-prices-commit'
+        if: endsWith(inputs.instrument, '-commit')
         run: |
           if [ "${{ inputs.confirm_live }}" != "kalshi-cockpit" ]; then
-            echo "::error::backfill-leg-prices-commit writes the live database and"
+            echo "::error::${{ inputs.instrument }} writes the live database and"
             echo "::error::needs the app name typed into confirm_live. Got: '${{ inputs.confirm_live }}'"
             exit 1
           fi
@@ -95,6 +104,10 @@ jobs:
               cmd="python /app/scripts/backfill_leg_prices.py --db /data/cockpit.db --dry-run --limit 400" ;;
             backfill-leg-prices-commit)
               cmd="python /app/scripts/backfill_leg_prices.py --db /data/cockpit.db --commit --limit 400" ;;
+            backfill-venue-combo-legs-dry-run)
+              cmd="python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --dry-run --limit 400" ;;
+            backfill-venue-combo-legs-commit)
+              cmd="python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --commit --limit 400" ;;
             *)
               echo "::error::unknown instrument '${{ inputs.instrument }}'"; exit 1 ;;
           esac

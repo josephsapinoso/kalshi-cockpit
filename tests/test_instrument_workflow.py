@@ -26,6 +26,12 @@ AGREED = {
     "backfill-leg-prices-commit": (
         "python /app/scripts/backfill_leg_prices.py --db /data/cockpit.db --commit --limit 400"
     ),
+    "backfill-venue-combo-legs-dry-run": (
+        "python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --dry-run --limit 400"
+    ),
+    "backfill-venue-combo-legs-commit": (
+        "python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --commit --limit 400"
+    ),
 }
 
 
@@ -70,14 +76,16 @@ class TestTheCommandsAreFixed:
 
 class TestTheWriteIsGuarded:
     def test_the_commit_instrument_needs_the_typed_app_name(self):
+        # Every instrument whose name ends `-commit`, by suffix rather than by
+        # a list, so a write added later cannot be left outside the guard.
         text = _text()
         guard = text.index("Guard the write")
-        assert "inputs.instrument == 'backfill-leg-prices-commit'" in text[guard:guard + 400]
+        assert "if: endsWith(inputs.instrument, '-commit')" in text[guard:guard + 400]
         assert "!= \"kalshi-cockpit\"" in text[guard:guard + 700]
 
     def test_only_the_commit_instrument_writes(self):
         for name, cmd in AGREED.items():
-            if name == "backfill-leg-prices-commit":
+            if name.endswith("-commit"):
                 assert "--commit" in cmd
             else:
                 assert "--commit" not in cmd

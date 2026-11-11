@@ -35,3 +35,18 @@ Joe follows five kinds of advice: game-script cards, leg verdicts, parlay preset
 - **That a tag is true.** It is Joe's word after the fact, and a bet built from two sources carries one tag.
 - **That any source beats the price.** The line compares results against the prices paid. With a handful of settled parlays, the line says "too few" and nothing else, and that is the correct answer.
 - **That a hand-recorded sportsbook slip can be tagged.** It has no ticker, so it cannot be.
+
+## Amendment 1 (2026-11-11): a tailed pick carries the name it came from
+
+**Status:** Accepted on Joe's answers by option button, 2026-11-11. **Schema:** v69 (with ADR 0197). **Tickets:** #420 (the columns), #422 (the chip and the per-name lines), #424 (the name on Check a parlay).
+
+**Why.** Joe said the picks he copies come from sharps he sees on Kalshi's own feed and from a friend, and asked which of them is worth following. One `friend` tag cannot answer that: it pools every person he tails into one line. Asked whether the desk should keep a record per named sharp, he chose "Yes, per name".
+
+**Decision.**
+
+1. **`pick_sources.tailed_from`** holds who a tailed pick came from, in his own word: a Kalshi handle or a person's name, trimmed, at most 40 characters, matched case-folded. Only a `friend` tag can carry one (a CHECK on the column), and NULL means "tailed, no name given", never a person. The key stays `friend` so existing rows and the CHECK on `source` hold; its label on screen becomes "Tailed pick".
+2. **`parlay_lookups.tailed_from`** holds the name typed into "Who is this from?" on Check a parlay. A bought ticker whose check carried a name is *offered* that name; the tag still exists only after his tap (§2 of this ADR, unchanged).
+3. **Names are never inferred and never backfilled.** Joe chose names going forward only; the tickets settled before this amendment stay untagged, and untagged is still counted on its own and never read as `own`.
+4. **The per-name line is the per-source line, one level down.** Wins and losses plus `expected_block`, per kind; `too_few` and no rate below 5 expected each side; names listed in first-used order and never sorted by any result (ADR 0071 §2.5). No "best", no ranking, no colour tied to a result.
+
+**What this does not establish.** That a name is right: it is his word, and one handle may be typed two ways. That any named source beats the price: at the pace he tails, one name needs on the order of a hundred settled tickets before its line can say anything but "too few", and until then that is the correct answer. Nothing about the tickets settled before 2026-11-11.

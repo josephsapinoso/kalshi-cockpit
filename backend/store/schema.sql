@@ -1608,6 +1608,10 @@ CREATE TABLE IF NOT EXISTS parlay_lookups (
     -- would refuse taps that work. Nobody has measured how often the fallback
     -- fires or how often it is then accepted. This column is that measurement.
     collection_unverified    INTEGER NOT NULL DEFAULT 0,
+    -- v69 (Joe, 2026-11-11, ADR 0197): the name Joe typed into "Who is this
+    -- from?" when he checked a parlay somebody else built. His word, never
+    -- inferred; NULL on every desk-built lookup and every check with no name.
+    tailed_from              TEXT,
     -- 'refused' since v38: a lookup `resolve_requested_legs` stopped before
     -- any mint -- a drifted leg, a card shape mismatch, a same-game pair.
     -- No market exists for that row, so every book/mint column stays NULL;
@@ -3166,9 +3170,95 @@ CREATE INDEX IF NOT EXISTS idx_game_script_cards_game
 -- Keyed by ticker because that is what an open combination, a settled one
 -- and a single share. Never inferred and never backfilled: no row means
 -- untagged, which is counted on its own and never read as `own`.
+--
+-- v69 (Joe, 2026-11-11, ADR 0193 Amendment 1): `tailed_from` is WHO a tailed
+-- pick came from, in his own word -- a Kalshi handle or a friend's name. Only
+-- a `friend` tag can carry one; NULL is "tailed, no name given", never a
+-- person. Never inferred and never backfilled, like the tag itself. (The
+-- note sits up here, not beside the column: SQLite rewrites the stored DDL
+-- on DROP COLUMN and a comment between the comma and the last column leaves
+-- it unparseable, which `test_store.py`'s one-version-behind rehearsal does.)
 CREATE TABLE IF NOT EXISTS pick_sources (
     ticker     TEXT PRIMARY KEY,
     source     TEXT NOT NULL CHECK (source IN
                    ('card', 'verdict', 'preset', 'chat', 'friend', 'own')),
-    tagged_ms  INTEGER NOT NULL
+    tagged_ms  INTEGER NOT NULL,
+    tailed_from TEXT CHECK (tailed_from IS NULL OR source = 'friend')
+);
+
+-- v69 (Joe, 2026-11-11, ADR 0197): the legs of a combination Joe bought OFF
+-- the desk, read from the venue's own market.
+--
+-- A combination bought in the Kalshi app reaches this instance as a
+-- `venue_settlements` row and nothing else: no `parlay_positions` row, no
+-- `parlay_lookups` row, so `/bets` could say what it cost and whether it won
+-- and nothing about what it was made of. `mve_selected_legs` on the venue's
+-- market is the authority on that, and it is still served after settlement
+-- (`GET /markets/{ticker}`; `GET /historical/markets/{ticker}` for the older
+-- tickers the first no longer knows -- probed 2026-11-11).
+--
+-- **All of a combination's legs or none.** A shorter list would read as the
+-- whole bet; the writer refuses the combination instead.
+--
+-- **Never joined into `parlay_position_legs`** and never read by `gate.py`
+-- (ADR 0063): these are bets the desk did not price. A combination that has
+-- a `parlay_positions` row is not written here, so no leg is counted twice.
+--
+-- `league` is the desk's own league key where a held leg of the same series
+-- already carries one, else the leg's bare series ticker: the desk follows
+-- five sports and these tickets hold others, and "Unknown" for every tennis
+-- leg would hide the one thing the row is for.
+--
+-- `venue_result` is the LEG market's own result as the venue served it,
+-- kept because discovery never sees most of these markets, so
+-- `kalshi_markets.result` is absent for them. NULL is unread, never "no".
+--
+-- The price columns mean what they mean on `parlay_position_legs` (v65) and
+-- are filled the same way, from one-minute candlesticks, with the purchase
+-- instant taken from `venue_settlements.position_first_seen_ms` ONLY where
+-- `position_time_source = 'fill_created_time'`. NULL means not recorded.
+CREATE TABLE IF NOT EXISTS venue_combo_legs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    combo_ticker    TEXT NOT NULL,
+    leg_index       INTEGER NOT NULL,
+    ticker          TEXT NOT NULL,
+    event_ticker    TEXT,
+    side            TEXT NOT NULL,
+    label           TEXT NOT NULL,
+    league          TEXT,
+    read_ms         INTEGER NOT NULL,
+    venue_result    TEXT CHECK (venue_result IS NULL OR venue_result IN ('yes', 'no')),
+    ask_at_purchase_tenths INTEGER,
+    ask_source      TEXT CHECK (ask_source IS NULL OR ask_source IN ('candle')),
+    close_yes_bid_tenths INTEGER,
+    close_yes_ask_tenths INTEGER,
+    close_observed_ms INTEGER,
+    -- When the price pass last finished with this leg, whatever it found.
+    -- A leg whose bars the venue no longer keeps is permanent, and without
+    -- this a bounded pass would re-read the same dead legs forever and never
+    -- reach the rest. NULL = not yet tried, or its game has not started.
+    price_read_ms   INTEGER,
+    -- When the result pass last asked the venue for this leg's result and
+    -- got none (not settled yet, not `finalized`, or not served). The pass
+    -- takes the least recently tried legs first and leaves one alone for
+    -- `RESULT_RETRY_AFTER_MS`, so legs that cannot resolve yet never block
+    -- the ones that can. NULL = never tried, or resolved.
+    result_read_ms  INTEGER,
+    CHECK (side IN ('yes', 'no')),
+    UNIQUE (combo_ticker, leg_index)
+);
+CREATE INDEX IF NOT EXISTS idx_venue_combo_legs_combo
+    ON venue_combo_legs(combo_ticker, leg_index);
+CREATE INDEX IF NOT EXISTS idx_venue_combo_legs_ticker
+    ON venue_combo_legs(ticker);
+
+-- v69: why a combination bought off the desk has NO rows above -- the venue
+-- no longer serves it, it carries no leg list, or a leg could not be read.
+-- One row per combination, replaced on a re-read and deleted when its legs
+-- are finally written. It exists so a pass does not re-read a permanent
+-- refusal every cycle, and so the count of each reason can be reported.
+CREATE TABLE IF NOT EXISTS venue_combo_leg_refusals (
+    combo_ticker    TEXT PRIMARY KEY,
+    reason          TEXT NOT NULL,
+    read_ms         INTEGER NOT NULL
 );

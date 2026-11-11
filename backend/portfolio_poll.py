@@ -103,7 +103,7 @@ from .core.fees import (
 )
 from .core.prices import dollars_to_tenths
 from .kalshi.discovery import parse_ms
-from .kalshi.rest import KalshiRestClient, parse_position_fp
+from .kalshi.rest import KalshiAPIError, KalshiRestClient, parse_position_fp
 from .store import db as store_db
 
 logger = logging.getLogger(__name__)
@@ -983,6 +983,75 @@ async def poll_settlements(
             "taker_mixed": taker["mixed"]}
 
 
+#: How much of the off-desk leg record one fast-branch pass may read from the
+#: venue (ADR 0197). Small on purpose: the pass rides the 5-minute cadence, so
+#: these are a ceiling of a few dozen unmetered GETs per five minutes, and a
+#: record of several hundred combinations still fills within a day of a
+#: deploy without any pass being long.
+VENUE_LEG_COMBOS_PER_PASS = 10
+VENUE_LEG_RESULTS_PER_PASS = 30
+
+#: The whole pass's wall-clock budget. Each read can retry and back off, and
+#: on a degraded venue eighty of them would push the next balance read -- the
+#: one the kill switch's freshness depends on -- back by minutes
+#: (kalshi-platform's review, #420). Work already committed is kept.
+VENUE_LEG_PASS_BUDGET_S = 45.0
+
+
+async def poll_venue_combo_legs(
+    conn: sqlite3.Connection,
+    client: KalshiRestClient,
+    *,
+    now_ms: int,
+    budget_s: float = VENUE_LEG_PASS_BUDGET_S,
+) -> Any:
+    """Read the legs of combinations Joe bought OFF the desk (ADR 0197).
+
+    A combination bought in the Kalshi app arrives here as a settlement or a
+    held position with no leg list. This asks the venue's own market for
+    `mve_selected_legs`, once per combination, and for each leg market's
+    result where discovery never resolved it -- see
+    `backend/venue_combo_legs.py` for the rules (all legs or none; written
+    once; an unread result is None, never "lost").
+
+    Never raises: the leg record is a convenience beside the mirror, and its
+    failure must not cost the cycle the balance, fills or settlements it has
+    already read. It writes two tables the gate never reads (ADR 0063) and
+    no money column anywhere.
+    """
+    from . import venue_combo_legs as vcl
+
+    async def get(path: str) -> Optional[dict]:
+        try:
+            return await client.get(path)
+        except KalshiAPIError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+
+    async def both() -> dict:
+        legs = await vcl.capture_legs(
+            conn, get, limit=VENUE_LEG_COMBOS_PER_PASS, now_ms=now_ms
+        )
+        results = await vcl.capture_results(
+            conn, get, limit=VENUE_LEG_RESULTS_PER_PASS, now_ms=now_ms
+        )
+        return {"legs": legs, "results": results}
+
+    try:
+        return await asyncio.wait_for(both(), timeout=budget_s)
+    except asyncio.TimeoutError:
+        conn.rollback()
+        logger.warning("venue combo legs pass ran out of its %.0fs budget", budget_s)
+        return "FAILED: budget"
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- see the docstring
+        conn.rollback()
+        logger.warning("venue combo legs pass failed (%s)", type(exc).__name__)
+        return f"FAILED: {type(exc).__name__}"
+
+
 async def poll_fills(
     conn: sqlite3.Connection,
     client: KalshiRestClient,
@@ -1484,11 +1553,17 @@ async def poll_portfolio_forever(
                     fee_result = await reconcile_fill_fees(
                         alerter, fee_checks, now_ms=now_ms
                     )
+                    # Last, after everything the cycle exists for: the legs
+                    # of combinations bought off the desk (ADR 0197). It
+                    # commits per combination and never raises.
+                    venue_legs_result = await poll_venue_combo_legs(
+                        conn, client, now_ms=now_ms
+                    )
                     logger.debug(
                         "balance snapshot: %s; fills: %s; settlements: %s; "
-                        "positions: %s; fees: %s",
+                        "positions: %s; fees: %s; venue legs: %s",
                         result, fills_result, settle_result, positions_result,
-                        fee_result,
+                        fee_result, venue_legs_result,
                     )
             except asyncio.CancelledError:
                 raise

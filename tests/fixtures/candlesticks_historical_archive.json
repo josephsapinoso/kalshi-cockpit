@@ -1,0 +1,95 @@
+{
+  "captured_at": "2026-11-11T21:42:40.452737+00:00",
+  "endpoint": "GET /trade-api/v2/historical/markets/{ticker}/candlesticks",
+  "note": "Unauthenticated GET /historical/markets/{ticker}/candlesticks for a market that closed 2026-09-04, read 2026-11-11. The live /series/{series}/markets/{ticker}/candlesticks path answered 404 not_found for the same market and window in the same minute. First three bars only. The archive's bar spells the close `close`, a dollar string, where the live endpoint spells it `close_dollars`. The market is one the operator never held; it was picked off GET /historical/markets?series_ticker=KXMLBGAME.",
+  "request": {
+    "endpoint": "/trade-api/v2/historical/markets/{ticker}/candlesticks",
+    "method": "GET",
+    "params": {
+      "end_ts": 1788545078,
+      "period_interval": 1,
+      "start_ts": 1788541478,
+      "ticker": "KXMLBGAME-26SEP041410DETCLEG1-DET"
+    }
+  },
+  "response": {
+    "candlesticks": [
+      {
+        "end_period_ts": 1788541500,
+        "open_interest": "906438.21",
+        "price": {
+          "close": "0.4700",
+          "high": "0.4700",
+          "low": "0.4600",
+          "mean": "0.4677",
+          "open": "0.4700",
+          "previous": "0.4700"
+        },
+        "volume": "1605.58",
+        "yes_ask": {
+          "close": "0.4700",
+          "high": "0.4700",
+          "low": "0.4700",
+          "open": "0.4700"
+        },
+        "yes_bid": {
+          "close": "0.4600",
+          "high": "0.4600",
+          "low": "0.4600",
+          "open": "0.4600"
+        }
+      },
+      {
+        "end_period_ts": 1788541560,
+        "open_interest": "908573.03",
+        "price": {
+          "close": "0.4700",
+          "high": "0.4700",
+          "low": "0.4600",
+          "mean": "0.4697",
+          "open": "0.4700",
+          "previous": "0.4700"
+        },
+        "volume": "2255.00",
+        "yes_ask": {
+          "close": "0.4700",
+          "high": "0.4700",
+          "low": "0.4700",
+          "open": "0.4700"
+        },
+        "yes_bid": {
+          "close": "0.4600",
+          "high": "0.4600",
+          "low": "0.4600",
+          "open": "0.4600"
+        }
+      },
+      {
+        "end_period_ts": 1788541620,
+        "open_interest": "908934.49",
+        "price": {
+          "close": "0.4700",
+          "high": "0.4700",
+          "low": "0.4700",
+          "mean": "0.4700",
+          "open": "0.4700",
+          "previous": "0.4700"
+        },
+        "volume": "361.46",
+        "yes_ask": {
+          "close": "0.4700",
+          "high": "0.4700",
+          "low": "0.4700",
+          "open": "0.4700"
+        },
+        "yes_bid": {
+          "close": "0.4600",
+          "high": "0.4600",
+          "low": "0.4600",
+          "open": "0.4600"
+        }
+      }
+    ],
+    "ticker": "KXMLBGAME-26SEP041410DETCLEG1-DET"
+  }
+}

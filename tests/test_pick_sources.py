@@ -86,7 +86,9 @@ class TestTheTagIsHisTapAndNothingElse:
             _tag(conn, COMBO, "hunch")
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
-                "INSERT INTO pick_sources VALUES (?, 'hunch', ?)", (COMBO, NOW)
+                "INSERT INTO pick_sources (ticker, source, tagged_ms) "
+                "VALUES (?, 'hunch', ?)",
+                (COMBO, NOW),
             )
 
     def test_suggestions_come_only_from_a_card_stamp_or_a_preset(self, conn):

@@ -328,7 +328,7 @@ def _legs_by_ticker(
 ) -> dict[str, list[dict[str, str]]]:
     """Each combo ticker's legs, in words, where they can be READ (#254).
 
-    Two sources, tried in order, both keyed by the combo's own ticker:
+    Three sources, tried in order, all keyed by the combo's own ticker:
 
     1. `parlay_position_legs` through `parlay_positions.combo_ticker` -- the
        legs Joe's recorded position carries (newest position for the ticker,
@@ -336,6 +336,11 @@ def _legs_by_ticker(
     2. `parlay_lookups.selected_legs` through `minted_market_ticker`, newest
        row that parses, read by `parlays.legs_for_position` (which returns
        `None`, never a shorter list, for an unreadable blob).
+    3. `venue_combo_legs` (v69, ADR 0197) -- the legs of a combination bought
+       OFF the desk, read once from the venue's own market by
+       `backend/venue_combo_legs.py`. Last, because the desk's own record of
+       a bet it priced carries sportsbook-phrased labels and this one carries
+       the venue's.
 
     **Never a guess.** A ticker appears in the result only when EVERY leg of
     its chosen source has a non-blank label that is not merely the leg's own
@@ -422,6 +427,31 @@ def _legs_by_ticker(
                 }
                 for leg in parsed.legs
             ]
+
+    missing = [t for t in tickers if t not in out]
+    if missing:
+        marks = ",".join("?" for _ in missing)
+        by_venue: dict[str, list[Any]] = {}
+        for r in conn.execute(
+            "SELECT combo_ticker AS combo, ticker, side, label, venue_result "
+            "FROM venue_combo_legs "
+            f"WHERE combo_ticker IN ({marks}) "
+            "ORDER BY combo_ticker, leg_index",
+            missing,
+        ).fetchall():
+            by_venue.setdefault(r["combo"], []).append(r)
+        for combo, legs in by_venue.items():
+            if all(_readable(r["label"], r["ticker"]) for r in legs):
+                out[combo] = [
+                    {
+                        "label": r["label"].strip(),
+                        "side": r["side"],
+                        "ticker": r["ticker"],
+                        "recorded_outcome": None,
+                        "venue_result": r["venue_result"],
+                    }
+                    for r in legs
+                ]
     return _with_leg_results(conn, out)
 
 
@@ -438,7 +468,10 @@ def leg_result(
        by hand; it is the only source that can say "void");
     2. `kalshi_markets.result`, which `market_results.py` writes once, at
        `finalized`, for every market discovery has seen -- compared with the
-       leg's side exactly as `hedge.resolve_from_venue` does.
+       leg's side exactly as `hedge.resolve_from_venue` does. For a leg of a
+       combination bought off the desk whose market discovery never saw,
+       `venue_combo_legs.venue_result` stands in: the same venue field, read
+       once by `backend/venue_combo_legs.py` and stored.
 
     **None is not "lost".** A leg whose market was never discovered, or
     whose result has not been read, is unread, and the screen says so.
@@ -474,9 +507,16 @@ def _with_leg_results(
         }
     for legs in out.values():
         for leg in legs:
+            venue_result = leg.pop("venue_result", None)
+            discovered = results.get(leg.get("ticker"))
+            if not (
+                isinstance(discovered, str)
+                and discovered.strip().lower() in ("yes", "no")
+            ):
+                discovered = venue_result
             leg["result"] = leg_result(
                 leg.pop("recorded_outcome", None),
-                results.get(leg.get("ticker")),
+                discovered,
                 leg["side"],
             )
     return out
@@ -895,7 +935,13 @@ def _median(values: list[float]) -> float:
 def by_leg_kind_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     """Per league and kind: wins at the price paid, and the close beaten or not.
 
-    Reads `parlay_position_legs` and nothing else. **It never reads the
+    Reads `parlay_position_legs`, and since v69 (ADR 0197) the legs of the
+    combinations bought off the desk, `venue_combo_legs`, under exactly the
+    same rules: a leg's result is its market's own (`kalshi_markets.result`,
+    else the stored `venue_result`), its price is the candle ask at purchase
+    where one was read, and a combination that has a `parlay_positions` row
+    is taken from the first table only, so no leg is counted twice. **It never
+    reads the
     leg-verdict table** (its registration's s6 forbids any running
     scout-accuracy figure; the money-path allowlist test keeps this module
     off that table's reader list, which is why the table is not named here)
@@ -927,6 +973,29 @@ def by_leg_kind_summary(conn: sqlite3.Connection) -> dict[str, Any]:
         "FROM parlay_position_legs "
         "WHERE ticker IS NOT NULL AND outcome IN ('won', 'lost')"
     ).fetchall()
+    rows = [dict(r) for r in rows]
+    for r in conn.execute(
+        "SELECT l.ticker, l.event_ticker, l.league, l.side, "
+        "       m.result AS market_result, l.venue_result, "
+        "       l.ask_at_purchase_tenths, l.close_yes_bid_tenths, "
+        "       l.close_yes_ask_tenths "
+        "FROM venue_combo_legs l "
+        "LEFT JOIN kalshi_markets m ON m.ticker = l.ticker "
+        "WHERE NOT EXISTS (SELECT 1 FROM parlay_positions p "
+        "                  WHERE p.combo_ticker = l.combo_ticker)"
+    ).fetchall():
+        discovered = r["market_result"]
+        if not (
+            isinstance(discovered, str)
+            and discovered.strip().lower() in ("yes", "no")
+        ):
+            discovered = r["venue_result"]
+        outcome = leg_result(None, discovered, r["side"])
+        if outcome not in ("won", "lost"):
+            continue
+        row = dict(r)
+        row["outcome"] = outcome
+        rows.append(row)
 
     cells: dict[tuple[str, str], dict[str, Any]] = {}
     for r in rows:

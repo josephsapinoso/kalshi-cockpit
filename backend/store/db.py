@@ -307,7 +307,17 @@ logger = logging.getLogger(__name__)
 #: is built rather than answered with the first. Nullable column step; no
 #: backfill -- NULL is the truth about the watcher's 2-3 leg cards and every
 #: tap before v68.
-SCHEMA_VERSION = 68
+#:
+#: v69 (2026-11-11, ADR 0197 and ADR 0193 Amendment 1; Joe's answers the same
+#: day) is one step for three things, so the two lanes that follow it need no
+#: schema of their own: the `venue_combo_legs` table (the legs of a
+#: combination bought off the desk, read from the venue's own market; created
+#: by `schema.sql`), `pick_sources.tailed_from` (who a tailed pick came from,
+#: allowed only on a `friend` tag -- the CHECK rides the column declaration
+#: for v51's reason) and `parlay_lookups.tailed_from` (the name typed on
+#: Check a parlay). Nullable column steps; no backfill -- NULL is the truth
+#: about every earlier row, and Joe chose names going forward only.
+SCHEMA_VERSION = 69
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1399,6 +1409,18 @@ _TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59, 
 
 
 _MIGRATIONS: dict[int, _Migration] = {
+    # Who a tailed pick came from. See the v69 note above. The new table,
+    # `venue_combo_legs`, needs no step: `schema.sql` creates it.
+    69: _Migration(
+        columns=(
+            (
+                "pick_sources",
+                "tailed_from",
+                "TEXT CHECK (tailed_from IS NULL OR source = 'friend')",
+            ),
+            ("parlay_lookups", "tailed_from", "TEXT"),
+        ),
+    ),
     # The size of each game-script card. See the v68 note above.
     68: _Migration(
         columns=(("game_script_cards", "leg_count", "INTEGER"),),
