@@ -152,6 +152,11 @@ export type PickSourcesBlock = {
   options: { key: PickSourceKey; label: string }[];
   tagged: Record<string, PickSourceKey>;
   suggested: Record<string, PickSourceKey>;
+  /** ADR 0193 Amendment 1: who a tailed pick came from, per ticker (only
+   *  `friend` tags carry one). */
+  tailed_from?: Record<string, string>;
+  /** The distinct names, in first-used order -- never sorted by a result. */
+  tailed_names?: string[];
 };
 
 /** v63: one source's settled bets of one kind. Fixed order, never sorted
@@ -159,6 +164,16 @@ export type PickSourcesBlock = {
 export type BySourceBlock = {
   source: PickSourceKey | "untagged";
   label: string;
+  wins: number;
+  losses: number;
+  expected: ExpectedBlock | null;
+  /** Only on the `friend` ("Tailed pick") block: the same line per name, in
+   *  first-used order; `name: null` is "tailed, no name given". */
+  by_name?: ByNameBlock[];
+};
+
+export type ByNameBlock = {
+  name: string | null;
   wins: number;
   losses: number;
   expected: ExpectedBlock | null;

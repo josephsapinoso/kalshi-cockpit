@@ -22,6 +22,7 @@ import {
   type BetKind,
   type BetsRecord,
   type BetsSection,
+  type ByNameBlock,
   type BySourceBlock,
   type PickSourcesBlock,
   type SettledBet,
@@ -483,6 +484,27 @@ function RecordStrip({ record }: { record: BetsRecord }) {
                   </span>
                 );
               })}
+              {SECTIONS.map((section) => {
+                const block = (record.by_source?.[section.kind] ?? []).find(
+                  (b) => b.source === source,
+                );
+                const lines = block?.by_name ?? [];
+                if (lines.length === 0) return null;
+                return (
+                  <ul
+                    key={section.kind}
+                    className="ml-4 mt-1 space-y-1"
+                    data-name-rows
+                  >
+                    {lines.map((line) => (
+                      <li key={line.name ?? "no-name"}>
+                        {line.name ?? "No name given"} ({section.kind === "combo" ? "combos" : "singles"}):{" "}
+                        <NameLine line={line} kind={section.kind} />
+                      </li>
+                    ))}
+                  </ul>
+                );
+              })}
             </li>
           ))}
         </ul>
@@ -751,6 +773,16 @@ function BySource({
                   </>
                 )
                 : ` — range ${block.expected.range_low} to ${block.expected.range_high}`}
+            {(block.by_name ?? []).length > 0 && (
+              <ul className="ml-4 mt-1 space-y-1" data-name-rows>
+                {(block.by_name ?? []).map((line) => (
+                  <li key={line.name ?? "no-name"}>
+                    {line.name ?? "No name given"}:{" "}
+                    <NameLine line={line} kind={kind} />
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>
@@ -762,6 +794,34 @@ function BySource({
         that.
       </p>
     </details>
+  );
+}
+
+/**
+ * ADR 0193 Amendment 1: one named line under "Tailed pick" -- the source
+ * line's own words and rule one level down. Counts only below the singles
+ * floor; "too few to say" and no range below five expected each side. No
+ * colour and no order tied to a result.
+ */
+function NameLine({ line, kind }: { line: ByNameBlock; kind: BetKind }) {
+  const noun = kind === "combo" ? "combos" : "bets";
+  return (
+    <>
+      {line.wins}W / {line.losses}L
+      {line.expected === null
+        ? " · counts only"
+        : ` · about ${line.expected.expected} expected to win`}
+      {line.expected === null
+        ? ""
+        : line.expected.too_few
+          ? (
+            <>
+              {" — "}
+              <Term k="too_few">too few {noun} to judge</Term>
+            </>
+          )
+          : ` — range ${line.expected.range_low} to ${line.expected.range_high}`}
+    </>
   );
 }
 
