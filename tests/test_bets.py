@@ -435,6 +435,8 @@ class TestTheRoute:
                 ],
                 "tagged": {},
                 "suggested": {},
+                "tailed_from": {},
+                "tailed_names": [],
             },
             # A database that has never polled refuses everything, in words.
             "open_positions": {

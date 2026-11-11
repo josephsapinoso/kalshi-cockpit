@@ -124,6 +124,8 @@ from .pick_sources import (
     open_combo_tickers,
     pick_source_payload,
     pick_sources_for,
+    tailed_from_for,
+    tailed_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -792,6 +794,8 @@ def count_ranges(record: dict) -> int:
             blocks.extend(expected.get("buckets", []))
     for per_kind in (record.get("by_source") or {}).values():
         blocks.extend(b.get("expected") for b in per_kind)
+        for b in per_kind:
+            blocks.extend(n.get("expected") for n in b.get("by_name") or [])
     for league in (record.get("by_leg_kind") or {}).get("leagues") or []:
         blocks.extend(k.get("expected") for k in league["kinds"])
     shape = record.get("by_shape") or {}
@@ -843,20 +847,45 @@ def bets_summary(
     return out
 
 
+def _line_of(kind: str, mine: list[tuple]) -> dict[str, Any]:
+    """wins, losses and the expected line for one group of settled bets.
+
+    Combinations carry `expected_block` (so `too_few` and no range below 5
+    expected each side); singles carry it only once the group alone reaches
+    `SINGLES_SUMMARY_FLOOR`, the kinds' own rule."""
+    wins = 0
+    for r in mine:
+        wins += 1 if r[2] else 0
+    cells = [
+        (r[3], r[2]) for r in mine
+        if isinstance(r[3], int) and 1 <= r[3] <= 999
+    ]
+    speaks = kind == KIND_COMBO or len(mine) >= SINGLES_SUMMARY_FLOOR
+    return {
+        "wins": wins,
+        "losses": len(mine) - wins,
+        "expected": expected_block(cells) if speaks else None,
+    }
+
+
 def by_source_summary(
-    rows: list[tuple[str, Optional[str], bool, Optional[int]]],
+    rows: list[tuple],
+    names: Optional[list[str]] = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Per kind, one block per pick source Joe tagged (v63), in the FIXED
     order of `PICK_SOURCES` with `untagged` last -- never sorted by any
     result, because an ordering is a claim (ADR 0071 §2.5).
 
-    `rows` is one `(kind, source_or_None, won, entry_price_tenths)` per
-    computable settled bet. A source with no settled bet of that kind is
-    left out rather than shown as zeros. Combinations carry the
-    expected-vs-won line (`expected_block`, so `too_few` and no range below
-    5 expected each side); singles carry it only once that source alone
-    reaches `SINGLES_SUMMARY_FLOOR`, the kinds' own rule. Never pooled
-    across kinds, and no rate is computed.
+    `rows` is one `(kind, source_or_None, won, entry_price_tenths[, name])`
+    per computable settled bet. A source with no settled bet of that kind is
+    left out rather than shown as zeros. Never pooled across kinds, and no
+    rate is computed.
+
+    ADR 0193 Amendment 1: the `friend` block (label "Tailed pick") carries
+    `by_name`, one entry per name in `names` order (first-used, as
+    `pick_sources.tailed_names` serves it; matched case-folded) and a last
+    "no name" entry when a tailed bet has none. Each is the source's own
+    line, under the same rule, one level down.
     """
     order = (*PICK_SOURCES, UNTAGGED)
     out: dict[str, list[dict[str, Any]]] = {}
@@ -869,21 +898,26 @@ def by_source_summary(
             ]
             if not mine:
                 continue
-            wins = 0
-            for r in mine:
-                wins += 1 if r[2] else 0
-            cells = [
-                (r[3], r[2]) for r in mine
-                if isinstance(r[3], int) and 1 <= r[3] <= 999
-            ]
-            speaks = kind == KIND_COMBO or len(mine) >= SINGLES_SUMMARY_FLOOR
-            blocks.append({
+            block = {
                 "source": source,
                 "label": PICK_SOURCE_LABELS.get(source, "Not tagged yet"),
-                "wins": wins,
-                "losses": len(mine) - wins,
-                "expected": expected_block(cells) if speaks else None,
-            })
+                **_line_of(kind, mine),
+            }
+            if source == "friend":
+                by_name: list[dict[str, Any]] = []
+                for name in names or []:
+                    theirs = [
+                        r for r in mine
+                        if len(r) > 4 and r[4]
+                        and r[4].casefold() == name.casefold()
+                    ]
+                    if theirs:
+                        by_name.append({"name": name, **_line_of(kind, theirs)})
+                nameless = [r for r in mine if not (len(r) > 4 and r[4])]
+                if nameless:
+                    by_name.append({"name": None, **_line_of(kind, nameless)})
+                block["by_name"] = by_name
+            blocks.append(block)
         out[kind] = blocks
     return out
 
@@ -1276,7 +1310,10 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     first_settled_ms: Optional[int] = None
     # v63: Joe's own tag per ticker, over the WHOLE table like `totals`.
     tags = pick_sources_for(conn, [r["ticker"] for r in rows])
-    source_rows: list[tuple[str, Optional[str], bool, Optional[int]]] = []
+    names = tailed_from_for(conn, [r["ticker"] for r in rows])
+    source_rows: list[
+        tuple[str, Optional[str], bool, Optional[int], Optional[str]]
+    ] = []
     shape_rows: list[tuple[str, int, bool, int, int]] = []
     for row in rows:
         kind = bet_kind(row["ticker"])
@@ -1312,7 +1349,8 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 kind_wl[kind][1] += 1
             price = row["entry_price_tenths"]
             source_rows.append(
-                (kind, tags.get(row["ticker"]), bool(won), price)
+                (kind, tags.get(row["ticker"]), bool(won), price,
+                 names.get(row["ticker"]))
             )
             if isinstance(price, int) and 1 <= price <= 999:
                 expected_cells[kind].append((price, bool(won)))
@@ -1462,7 +1500,9 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
             expected_cells,
             expected_excluded,
         )
-        record["by_source"] = by_source_summary(source_rows)
+        record["by_source"] = by_source_summary(
+            source_rows, tailed_names(conn)
+        )
         record["by_shape"] = by_shape_summary(
             conn, shape_rows, sections[KIND_COMBO]["uncomputable"]
         )
