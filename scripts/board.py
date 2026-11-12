@@ -469,12 +469,14 @@ def named_dates(*texts: str | None) -> list[dt.date]:
 
 
 def is_overdue(node: dict, today: dt.date) -> bool:
-    """True when the ticket names an ISO date and the LATEST one named has passed.
+    """True when the ticket's TITLE names an ISO date and the latest one has passed.
 
-    Latest, not any: a body that cites a past measurement beside a future
-    deadline is not overdue. A ticket naming no date is never overdue.
+    Title only: a dated ticket carries its date in the title (#337, #401),
+    while a body cites past measurement and ADR dates that are not deadlines.
+    Reading the body flagged #347 and #360 on such citations on the first run
+    (2026-11-12). Latest, not any, and a title naming no date is never overdue.
     """
-    dates = named_dates(node.get("title"), node.get("body"))
+    dates = named_dates(node.get("title"))
     return bool(dates) and max(dates) < today
 
 

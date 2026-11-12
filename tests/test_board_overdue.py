@@ -37,8 +37,10 @@ class TestOverdue:
     def test_past_date_in_title_is_marked(self):
         assert "OVERDUE" in _line(_frontier_text(_node(1, "look due 2026-11-03")), 1)
 
-    def test_past_date_in_body_is_marked(self):
-        assert "OVERDUE" in _line(_frontier_text(_node(2, "x", "revisit 2026-11-08")), 2)
+    def test_a_past_date_in_the_body_alone_is_not_marked(self):
+        """A body cites measurement and ADR dates; only the title carries a
+        deadline. Mutation observed red: read the body in `is_overdue`."""
+        assert "OVERDUE" not in _line(_frontier_text(_node(2, "x", "measured 2026-11-08")), 2)
 
     def test_future_date_is_not_marked(self):
         assert "OVERDUE" not in _line(_frontier_text(_node(3, "due 2027-01-15")), 3)
@@ -47,7 +49,7 @@ class TestOverdue:
         assert "OVERDUE" not in _line(_frontier_text(_node(4, "no date here")), 4)
 
     def test_latest_date_wins(self):
-        n = _node(5, "x", "measured 2026-09-01, next look 2027-01-15")
+        n = _node(5, "2026-09-01 look A done, look B 2027-01-15")
         assert "OVERDUE" not in _line(_frontier_text(n), 5)
 
     def test_today_itself_is_not_overdue(self):
