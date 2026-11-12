@@ -385,6 +385,21 @@ export const GLOSSARY = {
       "the same one, you tailed it. Naming whose picks they were lets the " +
       "record show how each name's picks did.",
   },
+  same_game: {
+    label: "same-game",
+    definition:
+      "A combination whose legs are all from one game: the winner, the " +
+      "margin and a total, say. They move together, so they are counted " +
+      "apart from combinations that span several games.",
+  },
+  cross_game: {
+    label: "cross-game",
+    definition:
+      "A combination whose legs come from more than one game. One leg " +
+      "losing does not tell you much about the others. A combination " +
+      "whose games the record cannot read is counted on its own line, " +
+      "not placed in either group.",
+  },
   too_few: {
     label: "too few to judge",
     definition:
