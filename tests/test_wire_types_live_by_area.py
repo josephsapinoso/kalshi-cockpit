@@ -29,6 +29,7 @@ PRE_MOVE_EXPORTS = [
     "BetsRecord",
     "BetsSection",
     "ExpectedBlock",
+    "ByNameBlock",
     "BySourceBlock",
     "PickSourceKey",
     "PickSourcesBlock",
