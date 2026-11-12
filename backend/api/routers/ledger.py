@@ -44,6 +44,7 @@ class PickSourceRequest(BaseModel):
 
     ticker: str = Field(min_length=1, max_length=pick_sources.MAX_TICKER_LEN)
     source: Optional[str] = None
+    tailed_from: Optional[str] = None
 
 
 def register(
@@ -79,12 +80,17 @@ def register(
                     ticker=request.ticker,
                     source=request.source,
                     now_ms=db.now_ms(),
+                    tailed_from=request.tailed_from,
                 )
             except pick_sources.PickSourceRefused as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             finally:
                 write_conn.close()
-            return {"ticker": request.ticker.strip(), "source": request.source}
+            return {
+                "ticker": request.ticker.strip(),
+                "source": request.source,
+                "tailed_from": pick_sources.clean_tailed_name(request.tailed_from),
+            }
 
     @app.get("/api/exposure")
     def exposure(conn=Depends(get_conn)) -> dict:

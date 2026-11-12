@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import Term from "@/components/Term";
 import { setPickSource, type PickSourcesBlock } from "@/lib/api";
 
 /**
@@ -26,6 +27,10 @@ export default function PickSourceChips({
   const [chosen, setChosen] = useState<string | null>(
     ticker && block ? (block.tagged[ticker] ?? null) : null,
   );
+  const [name, setName] = useState<string | null>(
+    ticker && block ? (block.tailed_from?.[ticker] ?? null) : null,
+  );
+  const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   if (!ticker || !block) return null;
@@ -43,6 +48,25 @@ export default function PickSourceChips({
       return;
     }
     setChosen(next);
+    // A new tag starts with no name; a name belongs to a tailed pick only.
+    setName(null);
+    router.refresh();
+  }
+
+  // ADR 0193 Amendment 1: who a tailed pick came from. Tapping the shown
+  // name again clears it; the backend trims, limits and refuses in words.
+  async function saveName(next: string | null) {
+    if (!ticker) return;
+    setBusy(true);
+    setRefused(null);
+    const answer = await setPickSource(ticker, "friend", next);
+    setBusy(false);
+    if (!answer.ok) {
+      setRefused(answer.detail);
+      return;
+    }
+    setName(next ? next.trim() || null : null);
+    setTyped("");
     router.refresh();
   }
 
@@ -76,6 +100,51 @@ export default function PickSourceChips({
           );
         })}
       </div>
+      {chosen === "friend" && (
+        <div className="mt-2" data-tailed-from>
+          <span className="text-muted">
+            <Term k="tail">Tailed</Term> from
+            {name ? `: ${name}` : " (optional):"}
+          </span>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {(block.tailed_names ?? []).map((known) => {
+              const on = name !== null && name.toLowerCase() === known.toLowerCase();
+              return (
+                <button
+                  key={known}
+                  type="button"
+                  disabled={busy}
+                  aria-pressed={on}
+                  onClick={() => saveName(on ? null : known)}
+                  className={`min-h-7 rounded-full border px-2.5 disabled:opacity-50 ${
+                    on ? "border-foreground font-semibold" : "border-border text-muted"
+                  }`}
+                >
+                  {known}
+                </button>
+              );
+            })}
+            <input
+              type="text"
+              value={typed}
+              maxLength={40}
+              disabled={busy}
+              onChange={(event) => setTyped(event.target.value)}
+              placeholder="A new name"
+              aria-label="A new name for who this pick came from"
+              className="min-h-7 w-32 rounded border border-border bg-transparent px-2"
+            />
+            <button
+              type="button"
+              disabled={busy || typed.trim() === ""}
+              onClick={() => saveName(typed.trim())}
+              className="min-h-7 rounded-full border border-border px-2.5 text-muted disabled:opacity-50"
+            >
+              Save name
+            </button>
+          </div>
+        </div>
+      )}
       {suggested !== null && (
         <p className="mt-1 text-[11px] text-muted">
           The dashed one is what the desk&rsquo;s own record shows. Tap it to

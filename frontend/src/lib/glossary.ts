@@ -377,6 +377,14 @@ export const GLOSSARY = {
       "leg or a game tend to move together, so the real range is usually " +
       "wider.",
   },
+  tail: {
+    label: "tail",
+    definition:
+      "To tail a pick is to copy a bet somebody else built, a sharp you " +
+      "follow or a friend. If a friend sends you his parlay and you buy " +
+      "the same one, you tailed it. Naming whose picks they were lets the " +
+      "record show how each name's picks did.",
+  },
   too_few: {
     label: "too few to judge",
     definition:

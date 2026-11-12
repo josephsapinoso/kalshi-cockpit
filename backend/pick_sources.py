@@ -49,7 +49,7 @@ PICK_SOURCE_LABELS: dict[str, str] = {
     "verdict": "Leg verdict",
     "preset": "Parlay preset",
     "chat": "Claude chat",
-    "friend": "A friend's pick",
+    "friend": "Tailed pick",
     "own": "My own pick",
 }
 
@@ -65,9 +65,27 @@ PRESET_KEYS: frozenset[str] = frozenset(
 
 MAX_TICKER_LEN = 120
 
+#: Longest name for who a tailed pick came from (ADR 0193 Amendment 1).
+MAX_TAILED_NAME_LEN = 40
+
 
 class PickSourceRefused(ValueError):
     """A tag or ticker the table cannot hold; the message is the screen's."""
+
+
+def clean_tailed_name(name: Optional[str]) -> Optional[str]:
+    """Trim a name; blank is None; over the limit is refused in words."""
+    if name is None:
+        return None
+    name = name.strip()
+    if not name:
+        return None
+    if len(name) > MAX_TAILED_NAME_LEN:
+        raise PickSourceRefused(
+            f"A name is at most {MAX_TAILED_NAME_LEN} characters. "
+            "Nothing was tagged."
+        )
+    return name
 
 
 def set_pick_source(
@@ -76,12 +94,23 @@ def set_pick_source(
     ticker: str,
     source: Optional[str],
     now_ms: int,
+    tailed_from: Optional[str] = None,
 ) -> None:
-    """Store Joe's tag for `ticker`, or clear it when `source` is None."""
+    """Store Joe's tag for `ticker`, or clear it when `source` is None.
+
+    `tailed_from` names who a tailed pick came from and is allowed only with
+    `friend`; a tag changed away from `friend` loses its name (ADR 0193
+    Amendment 1).
+    """
     ticker = (ticker or "").strip()
     if not ticker or len(ticker) > MAX_TICKER_LEN:
         raise PickSourceRefused("That is not a ticker. Nothing was tagged.")
+    name = clean_tailed_name(tailed_from)
     if source is None:
+        if name is not None:
+            raise PickSourceRefused(
+                "A name goes with a tailed pick only. Nothing was tagged."
+            )
         conn.execute("DELETE FROM pick_sources WHERE ticker = ?", (ticker,))
         conn.commit()
         return
@@ -89,13 +118,49 @@ def set_pick_source(
         raise PickSourceRefused(
             f"'{source}' is not one of the sources. Nothing was tagged."
         )
+    if name is not None and source != "friend":
+        raise PickSourceRefused(
+            "A name goes with a tailed pick only. Nothing was tagged."
+        )
     conn.execute(
-        "INSERT INTO pick_sources (ticker, source, tagged_ms) VALUES (?, ?, ?) "
+        "INSERT INTO pick_sources (ticker, source, tagged_ms, tailed_from) "
+        "VALUES (?, ?, ?, ?) "
         "ON CONFLICT(ticker) DO UPDATE SET "
-        "source = excluded.source, tagged_ms = excluded.tagged_ms",
-        (ticker, source, now_ms),
+        "source = excluded.source, tagged_ms = excluded.tagged_ms, "
+        "tailed_from = excluded.tailed_from",
+        (ticker, source, now_ms, name),
     )
     conn.commit()
+
+
+def tailed_names(conn: sqlite3.Connection) -> list[str]:
+    """Distinct names in FIRST-USED order: the earliest `tagged_ms` per
+    case-folded name, the spelling first used wins. Never sorted by any
+    result -- an ordering is a claim (ADR 0071 s2.5)."""
+    seen: dict[str, str] = {}
+    for name, in conn.execute(
+        "SELECT tailed_from FROM pick_sources WHERE tailed_from IS NOT NULL "
+        "ORDER BY tagged_ms, ticker"
+    ):
+        seen.setdefault(name.casefold(), name)
+    return list(seen.values())
+
+
+def tailed_from_for(
+    conn: sqlite3.Connection, tickers: Iterable[str]
+) -> dict[str, str]:
+    """`ticker -> name` for tickers that carry one."""
+    wanted = sorted({t for t in tickers if t})
+    out: dict[str, str] = {}
+    for start in range(0, len(wanted), 500):
+        chunk = wanted[start:start + 500]
+        for row in conn.execute(
+            "SELECT ticker, tailed_from FROM pick_sources "
+            f"WHERE tailed_from IS NOT NULL AND ticker IN ({_placeholders(len(chunk))})",
+            chunk,
+        ):
+            out[row[0]] = row[1]
+    return out
 
 
 def _placeholders(n: int) -> str:
@@ -180,4 +245,6 @@ def pick_source_payload(
         ],
         "tagged": tagged,
         "suggested": suggested,
+        "tailed_from": tailed_from_for(conn, wanted),
+        "tailed_names": tailed_names(conn),
     }
