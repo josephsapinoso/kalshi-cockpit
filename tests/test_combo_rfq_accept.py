@@ -410,6 +410,25 @@ class TestARefusalIsNotAnUnknown:
             )
         assert exc.value.status_code == 502
         assert "may still have reached Kalshi" in exc.value.detail
+
+    @pytest.mark.parametrize(
+        "body", ["request timeout", '{"error":{"code":"not_found"}}']
+    )
+    async def test_a_408_is_an_unknown_not_a_refusal(self, conn, body):
+        """#417: 408 is a 4xx in number only. It is the venue (or a proxy in
+        front of it) saying it gave up WAITING, which says nothing about
+        whether the acceptance landed. Nothing on this path retries and a
+        second tap is a second real trade, so it takes the cautious words --
+        even when its body happens to carry a word the refusal branch reads."""
+        api = self._Refuses(408, body)
+        with pytest.raises(LookupRefused) as exc:
+            await combo_rfq.accept_quote_for_joe(
+                conn, rfq_id=RFQ, quote_id=QUOTE, now_ms=2_000, api=api,
+                dry_run=False,
+            )
+        assert exc.value.status_code == 502
+        assert "may still have reached Kalshi" in exc.value.detail
+        assert "Nothing was placed" not in exc.value.detail
 class TestTheShippedProseAgreesWithTheFlag:
     """A comment saying the money path is off, on a money path that is on.
 

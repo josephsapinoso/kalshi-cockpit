@@ -1549,7 +1549,10 @@ def _venue_refusal_words(exc: Exception) -> Optional[str]:
     answer, not the convenient one.
     """
     status = getattr(exc, "status_code", None)
-    if status is None or not (400 <= int(status) < 500):
+    # 408 is a 4xx in number only (#417): the venue, or a proxy in front of
+    # it, gave up waiting. That is a lost answer, not a decline, so it takes
+    # the cautious branch whatever its body says.
+    if status is None or int(status) == 408 or not (400 <= int(status) < 500):
         return None
     body = str(getattr(exc, "body", "") or exc)
 
