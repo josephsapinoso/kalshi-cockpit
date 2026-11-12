@@ -261,3 +261,45 @@ class TestPageRendersBothSplitsAndTheToggle:
         # range count together.
         assert "population" in src
         assert "range_count_off_desk" in src
+
+
+class TestEachRowSaysWhetherTheDeskHoldsIt:
+    """#425: the off-desk views were aggregates only, so nothing reading the
+    payload could say WHICH tickets they counted."""
+
+    def test_a_row_carries_the_flag_the_off_desk_views_count_by(self, tmp_path):
+        conn = _build(tmp_path)
+        record = bets.bets_record(conn)
+        off = [b for b in record["bets"] if b["on_desk"] is False]
+        on = [b for b in record["bets"] if b["on_desk"] is True]
+        assert len(on) == 7 and len(off) == 9
+        view = record["by_shape"]["off_desk"]
+        counted = (
+            sum(r["n"] for r in view["leg_counts"])
+            + view["no_leg_list"]["n"]
+        )
+        assert counted == len(off)
+
+    def test_a_desk_position_with_a_stray_venue_read_is_still_on_the_desk(self, tmp_path):
+        conn = db.init_db(tmp_path / "stray.db")
+        ticker = _on_desk(conn, price=500, won=True, events=[NFL_A, NFL_B])
+        conn.execute(
+            "INSERT INTO venue_combo_legs (combo_ticker, leg_index, ticker, "
+            "event_ticker, side, label, read_ms) VALUES (?, 0, 'X-1', ?, 'yes', 'x', 1)",
+            (ticker, NFL_A),
+        )
+        conn.commit()
+        (bet,) = bets.bets_record(conn)["bets"]
+        assert bet["on_desk"] is True
+
+    def test_a_single_carries_no_flag(self, tmp_path):
+        conn = db.init_db(tmp_path / "single.db")
+        conn.execute(
+            "INSERT INTO venue_settlements (ticker, event_ticker, market_result, "
+            "settled_ms, side, contracts, entry_price_tenths, fee_cost_tenths, "
+            "position_first_seen_ms) VALUES ('KXNFLGAME-26SEP13ATLPIT-ATL', "
+            "'KXNFLGAME-26SEP13ATLPIT', 'yes', 1000, 'yes', 1.0, 500, 0, NULL)"
+        )
+        conn.commit()
+        (bet,) = bets.bets_record(conn)["bets"]
+        assert bet["on_desk"] is None

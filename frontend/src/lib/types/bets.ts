@@ -126,6 +126,10 @@ export type SettledBet = {
   // v63: where Joe says this pick came from; null when untagged (never
   // "own"). Optional: a backend one version behind omits the key.
   pick_source?: PickSourceKey | null;
+  // #425: a combination the desk holds a position for (true) or one bought
+  // off the desk (false); null on a single. Optional: a backend one version
+  // behind omits the key.
+  on_desk?: boolean | null;
   // The game-script card this combo was minted from: its "drop this if"
   // words and what the T-2h re-check found. Null when no card is stamped
   // with this ticker; optional for a backend one version behind.

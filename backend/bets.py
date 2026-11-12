@@ -1398,6 +1398,12 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
         conn,
         sorted({r["ticker"] for r in window if bet_kind(r["ticker"]) == KIND_COMBO}),
     )
+    # #425: which rows the off-desk views count, by the same reader they use,
+    # so a row's flag and `by_shape.off_desk` cannot disagree.
+    desk_by_ticker = _shape_legs(
+        conn,
+        sorted({r["ticker"] for r in window if bet_kind(r["ticker"]) == KIND_COMBO}),
+    )
     titles_by_ticker = _titles_by_ticker(
         conn,
         sorted({r["ticker"] for r in window if bet_kind(r["ticker"]) == KIND_SINGLE}),
@@ -1582,6 +1588,14 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                 "card": cards_by_combo.get(row["ticker"]),
                 # v63: Joe's tag, None when untagged -- never `own`.
                 "pick_source": tags.get(row["ticker"]),
+                # #425: a `parlay_positions` row exists for this combination
+                # (bought through the desk, or recorded on it by hand). False
+                # is "bought off the desk", the population `by_shape.off_desk`
+                # counts. None on a single: the split is about combinations.
+                "on_desk": (
+                    bool(desk_by_ticker.get(row["ticker"], {}).get("on_desk", False))
+                    if kind == KIND_COMBO else None
+                ),
             }
         )
     record: dict[str, Any] = {
