@@ -35,21 +35,28 @@ export default function PickSourceChips({
   const [refused, setRefused] = useState<string | null>(null);
   if (!ticker || !block) return null;
   const suggested = chosen === null ? (block.suggested[ticker] ?? null) : null;
+  // #424: a name typed on Check a parlay before this ticket was bought. It
+  // is offered with the dashed tag and stored only by the tap below.
+  const suggestedName =
+    suggested === "friend" ? (block.suggested_tailed_from?.[ticker] ?? null) : null;
 
   async function tap(key: string) {
     if (!ticker) return;
     const next = chosen === key ? null : key;
     setBusy(true);
     setRefused(null);
-    const answer = await setPickSource(ticker, next);
+    // Confirming the dashed tailed tag carries the name he gave at the check.
+    const carried = next === "friend" ? suggestedName : null;
+    const answer = await setPickSource(ticker, next, carried);
     setBusy(false);
     if (!answer.ok) {
       setRefused(answer.detail);
       return;
     }
     setChosen(next);
-    // A new tag starts with no name; a name belongs to a tailed pick only.
-    setName(null);
+    // Otherwise a new tag starts with no name; a name belongs to a tailed
+    // pick only.
+    setName(carried);
     router.refresh();
   }
 
@@ -95,6 +102,7 @@ export default function PickSourceChips({
               }`}
             >
               {option.label}
+              {hint && suggestedName ? `: ${suggestedName}` : ""}
               {hint ? " ?" : ""}
             </button>
           );

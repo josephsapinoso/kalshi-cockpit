@@ -157,6 +157,10 @@ export type PickSourcesBlock = {
   tailed_from?: Record<string, string>;
   /** The distinct names, in first-used order -- never sorted by a result. */
   tailed_names?: string[];
+  /** #424: the name typed on Check a parlay for a ticket later bought, per
+   *  ticker, only where `suggested` is `friend`. Offered, never stored until
+   *  he taps. */
+  suggested_tailed_from?: Record<string, string>;
 };
 
 /** v63: one source's settled bets of one kind. Fixed order, never sorted

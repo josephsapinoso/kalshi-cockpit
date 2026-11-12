@@ -306,3 +306,26 @@ class TestNoBandRecordAtTheBuyMoment:
                 assert label not in text, (label, text)
         # The component is scanned whole, comments and JSX text alike.
         assert not BAND_WORDS.search(COMPONENT.read_text(encoding="utf-8"))
+
+
+class TestTheChipCarriesTheNameGivenAtTheCheck:
+    """Main's follow-up to #424: the suggestion reaches the tap, and only the
+    tap stores it (ADR 0193 s2)."""
+
+    CHIPS = (
+        Path(__file__).resolve().parents[1]
+        / "frontend" / "src" / "components" / "PickSourceChips.tsx"
+    ).read_text(encoding="utf-8").replace("\r\n", "\n")
+
+    def test_the_suggested_name_is_read_only_for_a_suggested_tailed_tag(self):
+        assert (
+            'suggested === "friend" ? (block.suggested_tailed_from?.[ticker] ?? null) : null'
+            in self.CHIPS
+        )
+
+    def test_confirming_the_dashed_tag_sends_the_name_with_the_tap(self):
+        assert 'const carried = next === "friend" ? suggestedName : null;' in self.CHIPS
+        assert "await setPickSource(ticker, next, carried)" in self.CHIPS
+        # Nothing stores a name outside a tap handler: the only two writes
+        # are in `tap` and `saveName`.
+        assert self.CHIPS.count("await setPickSource(") == 2
