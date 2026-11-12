@@ -153,15 +153,15 @@ the channel diagnostic (A17.6/A17.11).
 - **Verification.** CI 43153536984 green on `fca0477f` (43146352325 was red on `fae37bf6`: two wire-type inventory tests, fixed by `ff6959b3`). Deploys 43154250926 (demo) and 43154621550 (live). Both `/api/health` read `fca0477f` on 2026-11-12.
 - **#421 closed 2026-11-12, the live backfill.** Eight commit passes; the final counts are on the ticket. The last pass (43266685262) found nothing left for the leg writer or the result reader and priced 36 of 246 legs, so it has plateaued and the poller's five-minute pass carries the rest. Not counted: why 243 settled combinations carry no venue legs (ADR 0197 §2.8 skips any with a `parlay_positions` row, which fits but was not split out).
 - **One pass died on `database is locked`** (43154725333, `backend/venue_combo_legs.py:466`); the retry succeeded. Ticket #428.
+- **#428 fixed 2026-11-12, NOT YET DEPLOYED.** Every write in `capture_legs`, `capture_results` and the script's price pass now rolls back on `sqlite3.OperationalError`, counts it under `write_errors` and carries on; the unwritten row stays queued. Four tests in `TestALockedDatabaseDoesNotEndThePass` hold a real write lock from a second connection, and each fails on the pre-fix code with the live traceback's error. No retry was added, and which writer held the lock on live is still unknown. Live and demo run the old code until the next deploy.
 - **2026-11-12: `next` 16.3.8 -> 16.4.1 (`3c73cd32`), live and demo.** Dependabot alerts #22-#24 (two critical unauthenticated RCEs, one high) had been open since 2026-10-31; the session-start alert read was not run on 11-11. CI 43267762502 green; demo deploy 43268998247; live deploy 43270524084 on Joe's word (the first attempt was refused by the auto-mode classifier). Live `/api/health` reads `eb000853`, the recorder wrote again about four minutes after the restart, and the alert query returns zero open. Not done: reading the `next` version out of the running container (ADR 0117); the image runs `npm ci` against a lockfile that pins 16.4.- **Worktrees removed 2026-11-12** on Joe's word: ten merged lanes and their branches, plus one empty leftover folder. `git worktree list` shows main only.
 
 ### Still open (adds to the list below)
 
 1. #429 — deploy next 16.4.1 to live (two critical RCE alerts); demo has it, live does not.
 1. #425 — the winning off-desk tickets re-read with their legs (private page); the last open task of #419.
-2. #428 — venue-legs backfill: a locked database ends the whole pass.
-3. #416 — signal_test.py still carries the 713 floor; Amendment 3 made it 861 (8 fixtures to re-anchor).
-4. #418 — totals: YES-is-Over is assumed in runner.py, never checked against a capture.
+2. #416 — signal_test.py still carries the 713 floor; Amendment 3 made it 861 (8 fixtures to re-anchor).
+3. #418 — totals: YES-is-Over is assumed in runner.py, never checked against a capture.
 
 ## 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`
 

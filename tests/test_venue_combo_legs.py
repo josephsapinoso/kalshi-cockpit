@@ -606,3 +606,77 @@ class TestThePollerPassHasABudget:
         # The budget passed in is the one that binds: a 30-second read under a
         # 0.05-second budget returns in well under two seconds, not in thirty.
         assert time.monotonic() - started < 2.0
+
+
+class _WriteLock:
+    """A second connection holding SQLite's write lock on the same file, which
+    is what the recorder is to a backfill pass (#428)."""
+
+    def __init__(self, conn):
+        path = conn.execute("PRAGMA database_list").fetchone()[2]
+        # The pass must not sit out the 5 s busy timeout once per leg.
+        conn.execute("PRAGMA busy_timeout = 0")
+        self.other = sqlite3.connect(path, timeout=0)
+
+    def __enter__(self):
+        self.other.execute("BEGIN IMMEDIATE")
+        return self
+
+    def __exit__(self, *exc):
+        self.other.rollback()
+        self.other.close()
+
+
+class TestALockedDatabaseDoesNotEndThePass:
+    def test_a_locked_result_write_is_counted_and_the_pass_carries_on(self, conn):
+        _settle(conn)
+        _capture(conn, {f"/markets/{COMBO}": PAYLOAD})
+        first, second = LEGS[0], LEGS[1]
+        pages = {
+            f"/markets/{first['market_ticker']}": _final(first["side"]),
+            f"/markets/{second['market_ticker']}": _final(second["side"]),
+        }
+        with _WriteLock(conn):
+            locked = _results(conn, pages)
+        # Every leg was still considered: the first locked write ended nothing.
+        assert locked["considered"] == len(LEGS)
+        assert locked["write_errors"] == len(LEGS)
+        # Nothing is reported written that was not.
+        assert locked["written"] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM venue_combo_legs "
+            "WHERE venue_result IS NOT NULL OR result_read_ms IS NOT NULL"
+        ).fetchone()[0] == 0
+        # And the unwritten legs are still in the queue for the next pass.
+        after = _results(conn, pages)
+        assert after["written"] == 2 and after["write_errors"] == 0
+
+    def test_a_locked_leg_write_is_counted_and_the_combination_stays_queued(self, conn):
+        _settle(conn)
+        with _WriteLock(conn):
+            locked, _ = _capture(conn, {f"/markets/{COMBO}": PAYLOAD})
+        assert locked["write_errors"] == 1
+        assert locked["written"] == 0 and locked["legs_written"] == 0
+        after, _ = _capture(conn, {f"/markets/{COMBO}": PAYLOAD})
+        assert after["written"] == 1 and after["legs_written"] == len(LEGS)
+
+    def test_a_locked_refusal_write_is_not_counted_as_a_refusal(self, conn):
+        _settle(conn)
+        with _WriteLock(conn):
+            locked, _ = _capture(conn, {})
+        assert locked["refused"] == {} and locked["write_errors"] == 1
+        after, _ = _capture(conn, {})
+        assert after["refused"] == {vcl.REFUSAL_NOT_FOUND: 1}
+
+    def test_a_locked_price_stamp_is_counted_and_the_pass_carries_on(self, conn):
+        # A poll instant is no purchase time, so the only write is the stamp
+        # that takes the leg out of the queue: the write nothing guarded.
+        TestThePricePass()._with_legs(conn, source="poll_instant")
+        with _WriteLock(conn):
+            locked = _prices(conn, _Candles())
+        assert locked["write_errors"] == len(LEGS)
+        assert conn.execute(
+            "SELECT COUNT(*) FROM venue_combo_legs WHERE price_read_ms IS NOT NULL"
+        ).fetchone()[0] == 0
+        after = _prices(conn, _Candles())
+        assert after["no_fill_time"] == len(LEGS) and "write_errors" not in after

@@ -262,12 +262,18 @@ async def fill_prices(
             counts["errors"] += 1
             finished = False
         if commit:
-            if finished:
-                conn.execute(
-                    "UPDATE venue_combo_legs SET price_read_ms = ? WHERE id = ?",
-                    (int(now_ms), leg_id),
-                )
-            conn.commit()
+            # A locked database must not end the pass (#428): the leg keeps
+            # its place in the queue and the next pass reads it again.
+            try:
+                if finished:
+                    conn.execute(
+                        "UPDATE venue_combo_legs SET price_read_ms = ? WHERE id = ?",
+                        (int(now_ms), leg_id),
+                    )
+                conn.commit()
+            except sqlite3.OperationalError:
+                conn.rollback()
+                counts["write_errors"] = counts.get("write_errors", 0) + 1
     return counts
 
 

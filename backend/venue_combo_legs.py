@@ -334,6 +334,29 @@ async def read_market(get: Getter, ticker: str) -> Optional[dict]:
     return None
 
 
+def _write(conn: sqlite3.Connection, statement: Callable[[], Any]) -> bool:
+    """Run one write and commit it; False when SQLite would not take it.
+
+    The recorder, the poller and the backfill share one database file, and a
+    write that waits out the busy timeout (or meets SQLITE_BUSY_SNAPSHOT,
+    which never waits) raises `OperationalError: database is locked`. On
+    2026-11-12 that ended a 1500-row backfill pass at its first locked leg
+    (#428). A leg or combination left unwritten is still in the queue for the
+    next pass, so the pass counts it under `write_errors` and carries on.
+
+    Does not establish which writer held the lock, and does not retry: the
+    connection's own busy timeout is the only wait.
+    """
+    try:
+        statement()
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        conn.rollback()
+        logger.warning("venue legs: write refused (%s)", exc)
+        return False
+    return True
+
+
 async def capture_legs(
     conn: sqlite3.Connection,
     get: Getter,
@@ -354,7 +377,7 @@ async def capture_legs(
     """
     counts: dict[str, Any] = {
         "considered": 0, "written": 0, "legs_written": 0,
-        "refused": {}, "errors": 0,
+        "refused": {}, "errors": 0, "write_errors": 0,
     }
     for ticker in combos_needing_legs(
         conn, limit=limit, retry_refused=retry_refused
@@ -373,16 +396,21 @@ async def capture_legs(
             logger.warning("venue legs: read failed (%s)", type(exc).__name__)
             continue
         if legs is None:
+            if commit and not _write(
+                conn,
+                lambda: record_refusal(conn, ticker, str(reason), read_ms=now_ms),
+            ):
+                counts["write_errors"] += 1
+                continue
             counts["refused"][reason] = counts["refused"].get(reason, 0) + 1
-            if commit:
-                record_refusal(conn, ticker, str(reason), read_ms=now_ms)
-                conn.commit()
+            continue
+        if commit and not _write(
+            conn, lambda: store_legs(conn, ticker, legs, read_ms=now_ms)
+        ):
+            counts["write_errors"] += 1
             continue
         counts["written"] += 1
         counts["legs_written"] += len(legs)
-        if commit:
-            store_legs(conn, ticker, legs, read_ms=now_ms)
-            conn.commit()
     return counts
 
 
@@ -433,16 +461,18 @@ async def capture_results(
     left alone for `RESULT_RETRY_AFTER_MS`, so a pass bounded by `limit`
     reaches every leg in turn.
     """
-    counts = {"considered": 0, "written": 0, "unsettled": 0, "not_found": 0, "errors": 0}
+    counts = {
+        "considered": 0, "written": 0, "unsettled": 0, "not_found": 0,
+        "errors": 0, "write_errors": 0,
+    }
 
     def tried(ticker: str) -> None:
-        if commit:
-            conn.execute(
-                "UPDATE venue_combo_legs SET result_read_ms = ? "
-                "WHERE ticker = ? AND venue_result IS NULL",
-                (int(now_ms), ticker),
-            )
-            conn.commit()
+        if commit and not _write(conn, lambda: conn.execute(
+            "UPDATE venue_combo_legs SET result_read_ms = ? "
+            "WHERE ticker = ? AND venue_result IS NULL",
+            (int(now_ms), ticker),
+        )):
+            counts["write_errors"] += 1
 
     for ticker in legs_needing_results(conn, limit=limit, now_ms=now_ms):
         counts["considered"] += 1
@@ -461,12 +491,12 @@ async def capture_results(
             counts["unsettled"] += 1
             tried(ticker)
             continue
+        if commit and not _write(conn, lambda: conn.execute(
+            "UPDATE venue_combo_legs SET venue_result = ? "
+            "WHERE ticker = ? AND venue_result IS NULL",
+            (result, ticker),
+        )):
+            counts["write_errors"] += 1
+            continue
         counts["written"] += 1
-        if commit:
-            conn.execute(
-                "UPDATE venue_combo_legs SET venue_result = ? "
-                "WHERE ticker = ? AND venue_result IS NULL",
-                (result, ticker),
-            )
-            conn.commit()
     return counts
