@@ -119,7 +119,7 @@ from typing import Callable, Optional, Sequence
 
 from backend.alt_lines import alt_candidate_for_leg
 from backend.core.correlation import CorrelationRefused
-from backend.core.fees import COMBO_TAKER_COEFFICIENT
+from backend.core.fees import COMBO_TAKER_COEFFICIENT, combo_taker_fee
 from backend.core.leg_words import no_title_words
 from backend.core.ladder import (
     UNUSABLE_REASONS,
@@ -285,17 +285,24 @@ def _probable_bug_fields(
     }
 
 
-def _record_line(label: str, block: Optional[dict]) -> str:
-    """The one fixed-wording record line, shared by both forms below."""
+def _record_line(who: str, block: Optional[dict]) -> str:
+    """The one fixed-wording record line, shared by both forms below.
+
+    It is HIS tails at HIS prices, not the sharp's own record. Every printed
+    figure comes from `expected` (`won`, `n`, the range), which covers only
+    tickets with a readable price, so the counts are over the same tickets.
+    The too-few and zero states print the count of cards (wins + losses)."""
     if block is None:
-        return f"{label} so far: too few to tell yet (0 cards)"
-    cards = block["wins"] + block["losses"]
+        return f"{who}: too few to tell yet (0 cards)"
     expected = block["expected"]
     if expected is None or expected["too_few"]:
-        return f"{label} so far: too few to tell yet ({cards} cards)"
+        cards = block["wins"] + block["losses"]
+        return f"{who}: too few to tell yet ({cards} cards)"
     return (
-        f"{label} so far: about {expected['expected']:g} expected to "
-        f"win, {block['wins']} did"
+        f"{who} ({expected['n']} cards): their prices said about "
+        f"{expected['expected']:g} would win, {expected['won']} did; "
+        f"anything from {expected['range_low']} to {expected['range_high']} "
+        "is normal if those prices were fair"
     )
 
 
@@ -304,7 +311,7 @@ def friend_source_line(conn, name: Optional[str] = None) -> Optional[str]:
     existing `by_source` block for the `friend` source on combinations.
 
     With `name`, that name's own `by_name` entry (matched case-folded) and
-    "<name>'s picks"; without, the whole tailed source, "Tailed picks".
+    "Your tails of <name>"; without, "Your tailed picks".
     Fixed wording, no colour, no verdict: either "about {expected} expected
     to win, {won} did" or "too few to tell yet ({n} cards)" below
     `expected_block`'s floor. `None` when the record cannot be read."""
@@ -322,7 +329,7 @@ def friend_source_line(conn, name: Optional[str] = None) -> Optional[str]:
         None,
     )
     if name is None:
-        return _record_line("Tailed picks", block)
+        return _record_line("Your tailed picks so far", block)
     entry = next(
         (
             n
@@ -331,23 +338,36 @@ def friend_source_line(conn, name: Optional[str] = None) -> Optional[str]:
         ),
         None,
     )
-    return _record_line(f"{name}'s picks", entry)
+    return _record_line(f"Your tails of {name} so far", entry)
 
 
 def price_as_odds(ask_tenths) -> Optional[str]:
-    """The ticket's one price as odds (#424): "At 3c this pays if about 1 in
-    33 of these come in". Arithmetic on this price alone, in integer tenths
-    (1000 / price_tenths); it names no band, record or threshold. `None`
-    when there is no price or it is outside 1..999 tenths."""
+    """The ticket's break-even rate at its one price (#424): "At 3c a
+    contract on the book now, 3.2c with Kalshi's fee, a ticket like this has
+    to win about 1 time in 31 to break even."
+
+    The price is the ask on the PUBLIC book at the moment of the check.
+    Combinations mostly fill by RFQ, at a different price, so this is not
+    the price he will necessarily pay. The fee is `fees.combo_taker_fee` for
+    one contract (no second formula here), whose coefficient (0.071) is the
+    applied estimate, not a measured constant. N = 1000 / (price + fee) in
+    tenths. Arithmetic on this one price: it names no record or threshold
+    and does not establish that the price is fair. `None` when there is no
+    price, it is outside 1..999 tenths, or the fee cannot be computed."""
     if not isinstance(ask_tenths, int) or isinstance(ask_tenths, bool):
         return None
     if not 1 <= ask_tenths <= 999:
         return None
-    n = 1000 / ask_tenths
+    fee_dollars = combo_taker_fee(ask_tenths, 1)
+    if fee_dollars is None:
+        return None
+    cost_tenths = ask_tenths + fee_dollars * 1000
+    n = 1000 / cost_tenths
     n_text = f"{round(n)}" if n >= 9.95 else f"{n:.1f}"
     return (
-        f"At {ask_tenths / 10:g}c this pays if about 1 in {n_text} of "
-        "these come in"
+        f"At {ask_tenths / 10:g}c a contract on the book now, "
+        f"{cost_tenths / 10:.1f}c with Kalshi's fee, a ticket like this has "
+        f"to win about 1 time in {n_text} to break even."
     )
 
 

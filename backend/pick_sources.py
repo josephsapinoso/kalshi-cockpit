@@ -30,6 +30,8 @@ sources gets one. It is not a measurement of any source's skill: the per-source
 summary in `backend/bets.py` is the same expected-vs-won line the kinds carry,
 under the same >= 5-each-side rule, and it says nothing until a source has
 enough settled bets for the line to speak (ADR 0193).
+
+A name on the record is Joe's tap on Your bets, which can come after the ticket settled; a name typed on Check a parlay is only offered until then, so no per-name line separates names given before the result from names given after.
 """
 
 from __future__ import annotations

@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from backend import parlay_check, pick_sources
+from backend import bets, parlay_check, pick_sources
 from backend.parlays import LookupRefused
 from backend.store import db as store
 from backend.store.db import now_ms
@@ -43,6 +43,14 @@ from tests.test_parlay_check import (
 
 REPO = Path(__file__).resolve().parents[1]
 COMPONENT = REPO / "frontend" / "src" / "components" / "CheckAParlay.tsx"
+#: The check response's top-level keys, pinned: a new key fails this test
+#: until someone adds it here deliberately (ADR 0196 s2.1).
+CHECK_KEYS = {
+    "status", "minted_market_ticker", "rfq_available",
+    "rfq_unavailable_reason", "legs", "alt_buys", "fair", "quoted",
+    "hold_display", "friend_source_line", "tailed_from", "source_line",
+    "tailed_names", "price_as_odds", "fee_coefficient", "words", "notes",
+}
 BAND_WORDS = re.compile(r"band|longshot|long shot", re.IGNORECASE)
 
 
@@ -107,10 +115,16 @@ class TestTheNameOnTheCheck:
         assert result["tailed_names"] == ["sharp_a"]
 
 
+SPEAKS = {
+    "too_few": False, "expected": 4.2, "n": 18, "won": 2,
+    "range_low": 1, "range_high": 8,
+}
+
+
 def _patch_record(monkeypatch, by_name):
     block = {
         "source": "friend", "wins": 3, "losses": 17,
-        "expected": {"too_few": False, "expected": 4.2, "n": 20},
+        "expected": dict(SPEAKS),
         "by_name": by_name,
     }
     monkeypatch.setattr(
@@ -123,7 +137,7 @@ class TestThePerNameLine:
     def test_a_name_with_no_settled_card_says_zero_cards(self, conn, monkeypatch):
         _patch_record(monkeypatch, [])
         assert parlay_check.friend_source_line(conn, "sharp_a") == (
-            "sharp_a's picks so far: too few to tell yet (0 cards)"
+            "Your tails of sharp_a so far: too few to tell yet (0 cards)"
         )
 
     def test_below_the_floor_says_too_few_with_the_count(self, conn, monkeypatch):
@@ -132,7 +146,7 @@ class TestThePerNameLine:
             "expected": {"too_few": True, "expected": 1.0, "n": 7},
         }])
         assert parlay_check.friend_source_line(conn, "sharp_a") == (
-            "sharp_a's picks so far: too few to tell yet (7 cards)"
+            "Your tails of sharp_a so far: too few to tell yet (7 cards)"
         )
 
     def test_above_the_floor_states_expected_and_won_for_that_name_only(
@@ -142,16 +156,20 @@ class TestThePerNameLine:
             {"name": "sharp_b", "wins": 9, "losses": 1,
              "expected": {"too_few": False, "expected": 2.5, "n": 10}},
             {"name": "Sharp_A", "wins": 3, "losses": 17,
-             "expected": {"too_few": False, "expected": 4.2, "n": 20}},
+             "expected": dict(SPEAKS)},
         ])
         assert parlay_check.friend_source_line(conn, "sharp_a") == (
-            "sharp_a's picks so far: about 4.2 expected to win, 3 did"
+            "Your tails of sharp_a so far (18 cards): their prices said "
+            "about 4.2 would win, 2 did; anything from 1 to 8 is normal if "
+            "those prices were fair"
         )
 
     def test_no_name_keeps_the_whole_tailed_line(self, conn, monkeypatch):
         _patch_record(monkeypatch, [])
         assert parlay_check.friend_source_line(conn) == (
-            "Tailed picks so far: about 4.2 expected to win, 3 did"
+            "Your tailed picks so far (18 cards): their prices said about "
+            "4.2 would win, 2 did; anything from 1 to 8 is normal if those "
+            "prices were fair"
         )
 
     async def test_the_check_serves_the_named_line(self, conn):
@@ -159,23 +177,34 @@ class TestThePerNameLine:
         result, _ = await _check(
             conn, payload, _mk_ticker("AB14"), name="sharp_a")
         assert result["source_line"] == (
-            "sharp_a's picks so far: too few to tell yet (0 cards)"
+            "Your tails of sharp_a so far: too few to tell yet (0 cards)"
         )
 
 
 class TestPriceAsOdds:
-    def test_thirty_tenths_is_about_one_in_thirty_three(self):
-        assert parlay_check.price_as_odds(30) == (
-            "At 3c this pays if about 1 in 33 of these come in"
-        )
+    @pytest.mark.parametrize("tenths, text", [
+        (10, "1c a contract on the book now, 1.1c with Kalshi's fee, "
+             "a ticket like this has to win about 1 time in 93 to break even."),
+        (30, "3c a contract on the book now, 3.2c with Kalshi's fee, "
+             "a ticket like this has to win about 1 time in 31 to break even."),
+        (50, "5c a contract on the book now, 5.3c with Kalshi's fee, "
+             "a ticket like this has to win about 1 time in 19 to break even."),
+        (100, "10c a contract on the book now, 10.6c with Kalshi's fee, "
+              "a ticket like this has to win about 1 time in 9.4 to break even."),
+        (200, "20c a contract on the book now, 21.1c with Kalshi's fee, "
+              "a ticket like this has to win about 1 time in 4.7 to break even."),
+    ])
+    def test_the_break_even_rate_is_after_the_combo_taker_fee(self, tenths, text):
+        assert parlay_check.price_as_odds(tenths) == "At " + text
 
-    def test_below_ten_to_one_shows_one_decimal(self):
-        assert parlay_check.price_as_odds(300) == (
-            "At 30c this pays if about 1 in 3.3 of these come in"
-        )
-        assert parlay_check.price_as_odds(125) == (
-            "At 12.5c this pays if about 1 in 8.0 of these come in"
-        )
+    def test_the_sentence_says_break_even_and_not_pays_or_of_these(self):
+        sentence = parlay_check.price_as_odds(30)
+        assert "break even" in sentence
+        assert "pays" not in sentence and "of these" not in sentence
+
+    def test_an_uncomputable_fee_is_none(self, monkeypatch):
+        monkeypatch.setattr(parlay_check, "combo_taker_fee", lambda p, c: None)
+        assert parlay_check.price_as_odds(30) is None
 
     @pytest.mark.parametrize("bad", [None, 0, -5, 1000, 1500, 30.5, True])
     def test_no_price_or_a_price_out_of_range_is_none(self, bad):
@@ -185,9 +214,8 @@ class TestPriceAsOdds:
         payload, _, _ = _total_and_game_combo(conn, one_book_total=False)
         result, _ = await _check(conn, payload, _mk_ticker("AB15"))
         # PRICED_BOOK: derived YES ask 30.0c = 300 tenths.
-        assert result["price_as_odds"] == (
-            "At 30c this pays if about 1 in 3.3 of these come in"
-        )
+        assert result["price_as_odds"] == parlay_check.price_as_odds(300)
+        assert "1 time in 3.2 to break even" in result["price_as_odds"]
 
     async def test_an_empty_book_serves_none(self, conn):
         payload, _, _ = _total_and_game_combo(conn, one_book_total=False)
@@ -248,6 +276,19 @@ class TestNoBandRecordAtTheBuyMoment:
         result, _ = await _check(
             conn, payload, _mk_ticker("AB1B"), name="sharp_a")
 
+        assert set(result) == CHECK_KEYS
+
+        def strings(node):
+            if isinstance(node, str):
+                yield node
+            elif isinstance(node, dict):
+                for k, v in node.items():
+                    yield from strings(k)
+                    yield from strings(v)
+            elif isinstance(node, (list, tuple)):
+                for v in node:
+                    yield from strings(v)
+
         def keys(node):
             if isinstance(node, dict):
                 for k, v in node.items():
@@ -257,11 +298,11 @@ class TestNoBandRecordAtTheBuyMoment:
                 for v in node:
                     yield from keys(v)
 
-        assert not {"price_bands", "by_shape"} & set(keys(result))
-        for sentence in (
-            result["source_line"], result["price_as_odds"],
-            result["friend_source_line"],
-        ):
-            assert sentence and not BAND_WORDS.search(sentence)
+        assert not {"price_bands", "by_shape", "by_price"} & set(keys(result))
+        labels = [label for _, _, label in bets.EXPECTED_BUCKETS]
+        for text in strings(result):
+            assert not BAND_WORDS.search(text), text
+            for label in labels:
+                assert label not in text, (label, text)
         # The component is scanned whole, comments and JSX text alike.
         assert not BAND_WORDS.search(COMPONENT.read_text(encoding="utf-8"))
