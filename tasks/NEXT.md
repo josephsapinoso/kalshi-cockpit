@@ -139,6 +139,29 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `fca0477f`
+
+- **This entry was written the next morning by a different session.** Joe shut the PC down before the session wrote its handoff. Everything here is rebuilt from `git log caadf719..fca0477f`, the tickets and the workflow run logs, not from the session itself, so its reasoning and any lesson it meant to record are missing. `tasks/lessons.md` has no entry for it.
+- **What it was.** Story **#419** (under #320), on Joe's approval of a 2026-11-11 plan: he tails parlays bought in the Kalshi app, and the record could not say what any of them was made of.
+- **Built, merged and live:**
+  - #420 — ADR 0197, schema v69: `venue_combo_legs`, `venue_combo_leg_refusals`, `tailed_from` on `pick_sources` and `parlay_lookups`; the reader in `backend/venue_combo_legs.py`, the backfill in `scripts/backfill_venue_combo_legs.py`.
+  - #422 — Your bets: name who a tailed pick came from, one record line per name; glossary "tail".
+  - #423 (closes #355) — Your bets: same-game vs cross-game split and a bought-off-the-desk view.
+  - #424 — Check a parlay: who is this from, that name's record line, the price as odds, break-even rate after the fee. ADR 0193 Amendment 1: a name can be tagged after the result is known.
+  - #417 — an HTTP 408 on a quote accept is an UNKNOWN, not a decline.
+  - `instrument.yml` gained `backfill-venue-combo-legs-dry-run` and `-commit` (1500 rows a pass, 40-minute cap). **The commit form needs `-f confirm_live=kalshi-cockpit`**; without it the guard fails in seconds and nothing runs.
+- **Verification.** CI 43153536984 green on `fca0477f` (43146352325 was red on `fae37bf6`: two wire-type inventory tests, fixed by `ff6959b3`). Deploys 43154250926 (demo) and 43154621550 (live). Both `/api/health` read `fca0477f` on 2026-11-12.
+- **#421 closed 2026-11-12, the live backfill.** Eight commit passes; the final counts are on the ticket. The last pass (43266685262) found nothing left for the leg writer or the result reader and priced 36 of 246 legs, so it has plateaued and the poller's five-minute pass carries the rest. Not counted: why 243 settled combinations carry no venue legs (ADR 0197 §2.8 skips any with a `parlay_positions` row, which fits but was not split out).
+- **One pass died on `database is locked`** (43154725333, `backend/venue_combo_legs.py:466`); the retry succeeded. Ticket #428.
+- **Left on disk.** Eleven merged worktrees under `.claude/worktrees/`, all clean and none ahead of main.
+
+### Still open (adds to the list below)
+
+1. #425 — the winning off-desk tickets re-read with their legs (private page); the last open task of #419.
+2. #428 — venue-legs backfill: a locked database ends the whole pass.
+3. #416 — signal_test.py still carries the 713 floor; Amendment 3 made it 861 (8 fixtures to re-anchor).
+4. #418 — totals: YES-is-Over is assumed in runner.py, never checked against a capture.
+
 ## 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`
 
 - **How it ran.** Joe asked for a town hall to "review the project so far … improve the ui".
@@ -618,6 +641,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `fca0477f`
 - 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`
 - 2026-10-30 (hundred-and-fifth session) — #361 read: busiest day 546, daily cap 700 → 800 on Joe's word; men's college basketball in scope (#360); live and demo on `4afdf974`
 - 2026-10-25 (hundred-and-fourth session) — queue date-gated, nothing executed; #302 and #197 empty by finding; live and demo on `c2350d6c`
