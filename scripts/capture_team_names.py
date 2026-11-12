@@ -295,6 +295,11 @@ def bucket(reason: str | None, known: int) -> str:
         # No in-window fixture shares even one side: the books do not carry
         # this game. That is scope, not spelling.
         return "not_carried" if known == 0 else "needs_alias"
+    if "at this kickoff shares either side" in reason:
+        # The linker's own NOT_CARRIED wording (`linker.py`). Until 2026-11-12
+        # this fell through to "other" and 18 not-carried games read as an
+        # unexplained bucket (#401).
+        return "not_carried"
     if reason.startswith("ambiguous"):
         return "ambiguous"
     if reason.startswith("expected 2 sides"):

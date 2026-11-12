@@ -1,11 +1,14 @@
 # Men's college basketball team-name overrides.
 #
-# See americanfootball_nfl.yaml for the rules. Derived 2026-10-30 by
-# `scripts/capture_team_names.py --league ncaab` against 155 Kalshi
-# `KXNCAAMBGAME` events and ONLY 7 Odds API fixtures (the books had not posted
-# the 11-02/03 slate yet). Six of the seven linked with no aliases; this is the
-# one that did not. It rests on n = 7 and MUST be re-derived on the full
-# 11-02/03 slate -- a team absent from this file is not proof it needs none.
+# See americanfootball_nfl.yaml for the rules. First derived 2026-10-30 on
+# n = 7 book fixtures (Miami (FL) only). RE-DERIVED 2026-11-12 (#401) by
+# `scripts/capture_team_names.py --league ncaab` against 177 Kalshi
+# `KXNCAAMBGAME` events and 62 Odds API fixtures. With no aliases: 52 linked,
+# 10 refused on names. With this file: 61 linked, 1 refused (Tennessee St. vs
+# Tennessee, below). 97 had no book fixture at their kickoff, 18 had no fixture
+# at that kickoff sharing either side (not carried). Every pair below was read
+# off that run's output, both halves; none is from memory. A team absent from
+# this file is still not proof it needs none -- 62 fixtures is two weeknight evenings.
 #
 # Format:  <kalshi name>: <sportsbook name>
 # The VALUE must be the book's full string including the mascot.
@@ -15,3 +18,20 @@ teams:
   # "miami fl", and "fl" is not a prefix of "hurricanes". Same entry, same
   # reason, as americanfootball_ncaaf.yaml.
   Miami (FL): Miami Hurricanes
+  # Read off the 2026-11-12 capture. Each is a school whose book name shares
+  # no leading token with Kalshi's: an abbreviation (CSU, GW, Mt., SE, UL), a
+  # dropped prefix (Purdue Fort Wayne), or a parenthesised state.
+  Cal State Bakersfield: CSU Bakersfield Roadrunners
+  Loyola Maryland: Loyola (MD) Greyhounds
+  Purdue Fort Wayne: Fort Wayne Mastodons
+  Southern University: Southern Jaguars
+  George Washington: GW Revolutionaries
+  Mount St. Mary's: Mt. St. Mary's Mountaineers
+  Southeast Missouri St.: SE Missouri St Redhawks
+  Louisiana-Monroe: UL Monroe Warhawks
+  # NOT FIXABLE HERE: Tennessee St. vs Tennessee (2026-11-13). "Tennessee" is
+  # a token prefix of BOTH book names, and an alias in this file only ADDS a
+  # match (`linker._matches` test 2), it never removes the prefix match
+  # (test 3). So the pair has no bijection whatever is written here, and the
+  # game is refused -- which is the safe failure. Making an override exclusive
+  # is a linker change for every league, not an alias.
