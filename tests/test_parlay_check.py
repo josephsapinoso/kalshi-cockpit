@@ -1097,7 +1097,7 @@ class TestFriendSourceLine:
         payload, _, _ = _total_and_game_combo(conn, one_book_total=False)
         result = await _check(conn, payload, _mk_ticker("AB05"))
         assert result["friend_source_line"] == (
-            "Friend's picks so far: too few to tell yet (0 cards)"
+            "Tailed picks so far: too few to tell yet (0 cards)"
         )
 
     def test_the_line_states_expected_and_won_above_the_floor(self, conn, monkeypatch):
@@ -1110,9 +1110,9 @@ class TestFriendSourceLine:
             lambda c, limit=1: {"by_source": {"combo": [block]}},
         )
         assert parlay_check.friend_source_line(conn) == (
-            "Friend's picks so far: about 4.2 expected to win, 3 did"
+            "Tailed picks so far: about 4.2 expected to win, 3 did"
         )
         block["expected"] = {"too_few": True, "expected": 1.0, "n": 20}
         assert parlay_check.friend_source_line(conn) == (
-            "Friend's picks so far: too few to tell yet (20 cards)"
+            "Tailed picks so far: too few to tell yet (20 cards)"
         )

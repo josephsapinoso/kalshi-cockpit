@@ -134,6 +134,11 @@ from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
 from backend.kalshi.rfq import RfqRefused, mve_legs
 from backend.team_rest_reader import rest_for_games
 from backend.bets import KIND_COMBO, bets_record
+from backend.pick_sources import (
+    PickSourceRefused,
+    clean_tailed_name,
+    tailed_names,
+)
 from backend.parlays import (
     HORIZON_LADDER,
     NOTES,
@@ -280,10 +285,26 @@ def _probable_bug_fields(
     }
 
 
-def friend_source_line(conn) -> Optional[str]:
-    """One line on how a friend's cards have done so far (#325), from the
+def _record_line(label: str, block: Optional[dict]) -> str:
+    """The one fixed-wording record line, shared by both forms below."""
+    if block is None:
+        return f"{label} so far: too few to tell yet (0 cards)"
+    cards = block["wins"] + block["losses"]
+    expected = block["expected"]
+    if expected is None or expected["too_few"]:
+        return f"{label} so far: too few to tell yet ({cards} cards)"
+    return (
+        f"{label} so far: about {expected['expected']:g} expected to "
+        f"win, {block['wins']} did"
+    )
+
+
+def friend_source_line(conn, name: Optional[str] = None) -> Optional[str]:
+    """One line on how tailed picks have done so far (#325, #424), from the
     existing `by_source` block for the `friend` source on combinations.
 
+    With `name`, that name's own `by_name` entry (matched case-folded) and
+    "<name>'s picks"; without, the whole tailed source, "Tailed picks".
     Fixed wording, no colour, no verdict: either "about {expected} expected
     to win, {won} did" or "too few to tell yet ({n} cards)" below
     `expected_block`'s floor. `None` when the record cannot be read."""
@@ -300,16 +321,57 @@ def friend_source_line(conn) -> Optional[str]:
         ),
         None,
     )
-    if block is None:
-        return "Friend's picks so far: too few to tell yet (0 cards)"
-    cards = block["wins"] + block["losses"]
-    expected = block["expected"]
-    if expected is None or expected["too_few"]:
-        return f"Friend's picks so far: too few to tell yet ({cards} cards)"
-    return (
-        f"Friend's picks so far: about {expected['expected']:g} expected to "
-        f"win, {block['wins']} did"
+    if name is None:
+        return _record_line("Tailed picks", block)
+    entry = next(
+        (
+            n
+            for n in (block or {}).get("by_name") or []
+            if n.get("name") and n["name"].casefold() == name.casefold()
+        ),
+        None,
     )
+    return _record_line(f"{name}'s picks", entry)
+
+
+def price_as_odds(ask_tenths) -> Optional[str]:
+    """The ticket's one price as odds (#424): "At 3c this pays if about 1 in
+    33 of these come in". Arithmetic on this price alone, in integer tenths
+    (1000 / price_tenths); it names no band, record or threshold. `None`
+    when there is no price or it is outside 1..999 tenths."""
+    if not isinstance(ask_tenths, int) or isinstance(ask_tenths, bool):
+        return None
+    if not 1 <= ask_tenths <= 999:
+        return None
+    n = 1000 / ask_tenths
+    n_text = f"{round(n)}" if n >= 9.95 else f"{n:.1f}"
+    return (
+        f"At {ask_tenths / 10:g}c this pays if about 1 in {n_text} of "
+        "these come in"
+    )
+
+
+def _stamp_tailed_from(conn, name: Optional[str]) -> None:
+    """Put `name` on the `parlay_lookups` row this check just wrote.
+    `_record_lookup` (backend/parlays.py, outside this lane) has no such
+    parameter, so the row it inserted on this connection is updated by its
+    rowid. A check that wrote no row never reaches here."""
+    if name is None:
+        return
+    conn.execute(
+        "UPDATE parlay_lookups SET tailed_from = ? "
+        "WHERE id = (SELECT last_insert_rowid())",
+        (name,),
+    )
+    conn.commit()
+
+
+def _known_tailed_names(conn) -> list[str]:
+    try:
+        return tailed_names(conn)
+    except sqlite3.Error:
+        logger.exception("tailed names read failed; the check offers none")
+        return []
 
 
 def _strip_trailing_punctuation(token: str) -> str:
@@ -528,6 +590,7 @@ async def check_parlay_text(
     horizon: str = WIDEST_HORIZON,
     max_kalshi_quote_age_ms: Optional[int] = None,
     request_alt_lines: Optional[Callable[[str, str], object]] = None,
+    tailed_from: Optional[str] = None,
 ) -> dict:
     """Read a pasted combination's legs off Kalshi and price it. See module
     docstring for the pipeline, the response contract and what is
@@ -540,6 +603,12 @@ async def check_parlay_text(
     market exists on the venue by this point, so the failure is recorded
     with the ticker before the caller is told).
     """
+    try:
+        tailed_from = clean_tailed_name(tailed_from)
+    except PickSourceRefused as exc:
+        raise LookupRefused(
+            422, str(exc).replace("Nothing was tagged.", "Nothing was checked.")
+        ) from exc
     match = _match_ticker(text)
     if match is None:
         raise LookupRefused(
@@ -873,6 +942,7 @@ async def check_parlay_text(
             error=f"orderbook: {exc}",
             leg_details=leg_details,
         )
+        _stamp_tailed_from(conn, tailed_from)
         raise LookupRefused(
             502,
             f"Kalshi's order book for {ticker} could not be read ({exc}). "
@@ -932,6 +1002,7 @@ async def check_parlay_text(
         error=None if status == "priced" else book_detail,
         leg_details=leg_details,
     )
+    _stamp_tailed_from(conn, tailed_from)
 
     quoted: Optional[dict] = None
     if status == "priced":
@@ -1017,6 +1088,15 @@ async def check_parlay_text(
         "hold_display": f"{hold * 100:.1f}%" if hold is not None else None,
         # How cards from a friend have done so far (#325): one fixed line.
         "friend_source_line": friend_source_line(conn),
+        # #424: who it is from (if given), that name's own record line, the
+        # known names for the tap targets, and the price as odds. Facts, no
+        # verdict; no band record at this moment (ADR 0196 s2.1).
+        "tailed_from": tailed_from,
+        "source_line": friend_source_line(conn, tailed_from),
+        "tailed_names": _known_tailed_names(conn),
+        "price_as_odds": (
+            price_as_odds(ask_tenths) if status == "priced" else None
+        ),
         # #334: the Take-it path's coefficient (`core.fees`), imported.
         "fee_coefficient": float(COMBO_TAKER_COEFFICIENT),
         "words": words,

@@ -42,6 +42,10 @@ import { Button, Stat } from "@/components/ui";
  */
 export default function CheckAParlay() {
   const [text, setText] = useState("");
+  // Who the parlay is from (#424): optional, a fact he supplies, sent with
+  // the check. The known names come back with the last check's answer.
+  const [from, setFrom] = useState("");
+  const [knownNames, setKnownNames] = useState<string[]>([]);
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "working" }
@@ -62,7 +66,8 @@ export default function CheckAParlay() {
     }
     setState({ kind: "working" });
     try {
-      const result = await checkParlay(pasted);
+      const result = await checkParlay(pasted, from.trim() || null);
+      if (result.ok) setKnownNames(result.value.tailed_names ?? []);
       setState(
         result.ok
           ? { kind: "done", value: result.value }
@@ -92,6 +97,36 @@ export default function CheckAParlay() {
         each leg&rsquo;s chance, the chance every leg hits, and the fair
         price against Kalshi&rsquo;s own ask.
       </p>
+      <div className="mt-3 space-y-1">
+        <label
+          htmlFor="check-a-parlay-from"
+          className="block text-xs text-muted"
+        >
+          Who is this from? (optional) If you are copying, or{" "}
+          <Term k="tail">tailing</Term>, someone&rsquo;s pick, say whose.
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          {knownNames.map((name) => (
+            <Button
+              key={name}
+              tone="quiet"
+              onClick={() => setFrom(name)}
+              aria-pressed={from.trim().toLowerCase() === name.toLowerCase()}
+            >
+              {name}
+            </Button>
+          ))}
+          <input
+            id="check-a-parlay-from"
+            type="text"
+            value={from}
+            maxLength={40}
+            onChange={(event) => setFrom(event.target.value)}
+            placeholder="a name"
+            className="w-40 rounded-lg border border-border bg-transparent px-2 py-1 text-sm"
+          />
+        </div>
+      </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <input
           id="check-a-parlay-input"
@@ -309,8 +344,15 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
 
       {/* #325: how cards from this source have done so far. A fixed line in
           a fixed place: no colour, no verdict, nothing sorted by it. */}
-      {value.friend_source_line && (
-        <p className="text-xs text-muted">{value.friend_source_line}</p>
+      {(value.source_line ?? value.friend_source_line) && (
+        <p className="text-xs text-muted">
+          {value.source_line ?? value.friend_source_line}
+        </p>
+      )}
+      {/* #424: this ticket's price restated as odds. Arithmetic on the one
+          price; no record, no colour. */}
+      {value.price_as_odds && (
+        <p className="tabular text-xs text-muted">{value.price_as_odds}</p>
       )}
 
       <AskTheScouts key={value.minted_market_ticker} value={value} />

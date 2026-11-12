@@ -530,10 +530,11 @@ export async function mintGameCombo(
  */
 export async function checkParlay(
   text: string,
+  tailedFrom: string | null = null,
 ): Promise<WriteResult<CheckedParlayResult>> {
   return postJson<CheckedParlayResult>({
     path: "/parlay-check",
-    body: { text },
+    body: tailedFrom ? { text, tailed_from: tailedFrom } : { text },
     noReply: (error) =>
       `The request did not reach the cockpit (${networkMessage(error)}). ` +
       "Nothing was checked.",
