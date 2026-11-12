@@ -139,7 +139,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `02746220`
+## 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `850a0ff6`
 
 - **This entry was written the next morning by a different session.** Joe shut the PC down before the session wrote its handoff. Everything here is rebuilt from `git log caadf719..fca0477f`, the tickets and the workflow run logs, not from the session itself, so its reasoning and any lesson it meant to record are missing. `tasks/lessons.md` has no entry for it.
 - **What it was.** Story **#419** (under #320), on Joe's approval of a 2026-11-11 plan: he tails parlays bought in the Kalshi app, and the record could not say what any of them was made of.
@@ -159,7 +159,7 @@ the channel diagnostic (A17.6/A17.11).
 - **#425 closed 2026-11-12, and with it story #419.** The winning off-desk tickets re-read with their legs, by `sharp-bettor`, on a private page: https://claude.ai/artifact/AEr4CerEeKMioVkJ5BewNb (owner-only; no record number is repeated here). Its arithmetic was checked against the record before publishing. It ends with four suggestions for Joe (A-D on the page); none is a ticket yet because he has not read it.
   - To make the page possible, each combination row on `/api/bets` now carries `on_desk` (`02746220`): the off-desk views were aggregates only, and every stand-in built from the other row fields missed the backend's own off-desk count. Three tests in `TestEachRowSaysWhetherTheDeskHoldsIt`. CI 43274976489 green; live deploy 43284713492 on Joe's word, demo 43285017843; both read `02746220`.
   - The backfill's before and after, for #419's Done-when (table counts, from #421): combinations with venue legs 0 to 643 of 886 settled; venue legs 0 to 8,068; legs with an ask at purchase 0 to 6,671; results unread 401; refused 0.
-- **#416 closed 2026-11-12, NOT YET DEPLOYED.** `signal_test.py` now states Amendment 3's floor (`MIN_CLUSTERS_TO_DECLARE = 861`, `RATCHET_SIGMA_TENTHS = 35.4271`) and the `/api/signal` note names Amendment 3. Amendment 3 §C3 had said "code is not changed"; it missed that the constant is served as `clusters_to_declare`, so the screen printed 713 as the registered floor. The registration carries a dated note saying so, laid out as a note and not an amendment, and §C3's bullet is marked superseded in code. measurement-skeptic: PASS WITH FIXES, six, all applied. The §A4 end-to-end fixtures went from 750 to 900 synthetic clusters; four mutations each turned the right tests red. No registered number, statistic or verdict moves. Until a deploy the screen still says 713.
+- **#416 closed 2026-11-12 and deployed.** `signal_test.py` now states Amendment 3's floor (`MIN_CLUSTERS_TO_DECLARE = 861`, `RATCHET_SIGMA_TENTHS = 35.4271`) and the `/api/signal` note names Amendment 3. Amendment 3 §C3 had said "code is not changed"; it missed that the constant is served as `clusters_to_declare`, so the screen printed 713 as the registered floor. The registration carries a dated note saying so, laid out as a note and not an amendment, and §C3's bullet is marked superseded in code. measurement-skeptic: PASS WITH FIXES, six, all applied. The §A4 end-to-end fixtures went from 750 to 900 synthetic clusters; four mutations each turned the right tests red. No registered number, statistic or verdict moves. Live deploy 43292613819 on Joe's word, then demo; both read `850a0ff6`, and live `/api/signal` serves `clusters_to_declare` 861 (its frozen recompute is the known `available: false` refusal the strip already handles).
 
 ### Still open (adds to the list below)
 
@@ -644,7 +644,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `02746220`
+- 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `850a0ff6`
 - 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`
 - 2026-10-30 (hundred-and-fifth session) — #361 read: busiest day 546, daily cap 700 → 800 on Joe's word; men's college basketball in scope (#360); live and demo on `4afdf974`
 - 2026-10-25 (hundred-and-fourth session) — queue date-gated, nothing executed; #302 and #197 empty by finding; live and demo on `c2350d6c`
