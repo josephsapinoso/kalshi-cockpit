@@ -221,6 +221,10 @@ class PassCounts:
     # because the sharp books' overtime rule is unread (#430,
     # `kalshi/totals.py`). Counted apart so it never reads as a parse bug.
     dropped_overtime_dependent_total: int = 0
+    # A total whose `strike_type` is not `"greater"`, or that carries a
+    # `cap_strike`: the venue is not saying "YES above the line", so YES is
+    # not the book's Over (#431). Never observed; counted by name the day it is.
+    dropped_total_not_above_line: int = 0
     # A candidate the pricing engine REFUSED to price, by raising. Counted
     # rather than allowed to propagate, and counted rather than swallowed --
     # the two failure modes are opposite and both have happened here.
@@ -1540,6 +1544,9 @@ def _price_totals_event(
 
     for market in event.markets:
         if market.market_type != MARKET_TYPE_TOTAL:
+            continue
+        if market.strike_type != "greater" or market.cap_strike_present:
+            counts.dropped_total_not_above_line += 1
             continue
         parsed = parse_total_subtitle(market.yes_side)
         if parsed is None:

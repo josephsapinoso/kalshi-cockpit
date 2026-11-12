@@ -76,10 +76,12 @@ WHAT THIS DOES NOT ESTABLISH
   college basketball resolve "to a fair price" where a book voids, NHL does
   the same for a game not started within 48 hours, and the NFL rules text
   read on 2026-11-12 carries no postponement clause at all.
-- That `strike_type` is `"greater"` and `cap_strike` is absent on a market
-  this prices. Both were so on every captured market, and they are the
-  venue's own statement that YES is above the line, but discovery does not
-  carry either field, so nothing here can check them.
+- That `strike_type` is `"greater"` and `cap_strike` is absent on every
+  market a caller joins. Since #431 discovery carries both and the runner's
+  totals arm refuses anything else (`dropped_total_not_above_line`), so no
+  `fair_prices` row is written for such a market. The alt-line check
+  (`backend/alt_lines.py`) reads `kalshi_markets`, which stores neither field,
+  and does not check them; the shape has never been observed.
 """
 
 from __future__ import annotations

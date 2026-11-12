@@ -575,6 +575,23 @@ class DiscoveredMarket:
     # un-normalise.
     player_name: Optional[str] = None
 
+    # **The venue's own statement of which side of the line YES is** (#431).
+    # `strike_type = "greater"` with no `cap_strike` is "YES above
+    # `floor_strike`"; the totals join binds YES to the book's Over on exactly
+    # that reading (`kalshi/totals.py`). Both held on all 2,952 open totals on
+    # 2026-11-12. Carried raw; `None` when absent, and the totals arm refuses a
+    # market whose `strike_type` is not readably `"greater"` rather than
+    # assuming it.
+    strike_type: Optional[str] = None
+    # `cap_strike` has never been captured on any market, so its wire type is
+    # unmeasured. The number is parsed defensively (`None` when unreadable)
+    # and PRESENCE is carried apart, because `build_market` also serves the
+    # order path's quote refresh (`kalshi/quotes.py`) on every market type: a
+    # field only the totals arm reads must never raise there. The totals arm
+    # refuses on presence, so a garbled value is still refused.
+    cap_strike: Optional[float] = None
+    cap_strike_present: bool = False
+
 
 @dataclass(frozen=True)
 class DiscoveredEvent:
@@ -661,6 +678,17 @@ def read_market_result(market: dict) -> Optional[str]:
     return result
 
 
+def _optional_float(raw) -> Optional[float]:
+    """A number or numeric string as float; `None` for anything else, never
+    0.0 and never an exception."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _exchange_index(market: dict) -> Optional[int]:
     """The market's own shard, or `None` when the field is absent or unusable.
 
@@ -732,6 +760,9 @@ def build_market(
         price_grid=read_price_grid(market),
         player_name=parsed_player[0] if parsed_player else None,
         exchange_index=_exchange_index(market),
+        strike_type=market.get("strike_type") or None,
+        cap_strike=_optional_float(market.get("cap_strike")),
+        cap_strike_present=market.get("cap_strike") is not None,
     )
 
 

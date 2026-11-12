@@ -198,7 +198,10 @@ class TestRungGrouping:
 EVENT_TICKER = "KXMLBTOTAL-26AUG01HOMAWA"
 
 
-def _total_event(*, strike=8.5, subtitle=None, ticker=f"{EVENT_TICKER}-8"):
+def _total_event(
+    *, strike=8.5, subtitle=None, ticker=f"{EVENT_TICKER}-8",
+    strike_type="greater", cap_strike=None,
+):
     market = DiscoveredMarket(
         ticker=ticker,
         event_ticker=EVENT_TICKER,
@@ -212,6 +215,9 @@ def _total_event(*, strike=8.5, subtitle=None, ticker=f"{EVENT_TICKER}-8"):
         volume_24h=0.0,
         open_interest=0.0,
         price_structure="linear_cent",
+        strike_type=strike_type,
+        cap_strike=cap_strike,
+        cap_strike_present=cap_strike is not None,
     )
     return DiscoveredEvent(
         event_ticker=EVENT_TICKER,
@@ -347,6 +353,36 @@ class TestThePricingPath:
         assert counts.fair_prices_written == 2
         assert counts.dropped_unknown_total_unit == 0
 
+    def _seed_8_5(self, conn):
+        _seed_total_rows(conn, rows=[
+            ("Over", 8.5, 1.95, "pinnacle"),
+            ("Under", 8.5, 1.95, "pinnacle"),
+        ])
+
+    @pytest.mark.parametrize("strike_type", ["less", "between", None])
+    def test_a_total_that_is_not_strike_type_greater_is_refused(self, conn, strike_type):
+        """#431: YES is the Over only when the venue says "greater"; an
+        unreadable one is refused, not assumed. Mutation observed red: drop
+        the `strike_type` clause in `_price_totals_event`."""
+        self._seed_8_5(conn)
+        counts = self._run(conn, _total_event(strike_type=strike_type))
+        assert counts.fair_prices_written == 0
+        assert counts.dropped_total_not_above_line == 1
+
+    def test_a_total_with_a_cap_strike_is_refused(self, conn):
+        """A `cap_strike` makes it a band, not "above the line". Mutation
+        observed red: drop the `cap_strike` clause."""
+        self._seed_8_5(conn)
+        counts = self._run(conn, _total_event(cap_strike=10.5))
+        assert counts.fair_prices_written == 0
+        assert counts.dropped_total_not_above_line == 1
+
+    def test_the_greater_uncapped_total_still_prices(self, conn):
+        self._seed_8_5(conn)
+        counts = self._run(conn)
+        assert counts.fair_prices_written == 2
+        assert counts.dropped_total_not_above_line == 0
+
     def test_an_overtime_dependent_nhl_line_is_counted_by_name(self, conn):
         _seed_total_rows(conn, rows=[
             ("Over", 6.5, 1.95, "pinnacle"),
@@ -440,6 +476,7 @@ class TestLinkInheritance:
                 volume_24h=0.0,
                 open_interest=0.0,
                 price_structure="linear_cent",
+                strike_type="greater",
             )
             for n in range(6, 12)
         )
@@ -681,3 +718,41 @@ class TestPeriodTotalsAreKeptOutByScope:
         doc = json.loads(BY_SERIES.read_text(encoding="utf-8"))
         nhl = next(e for e in doc["events"] if e["series_ticker"] == "KXNHLTOTAL")
         assert classify_series(nhl).is_game_level is True
+
+
+class TestDiscoveryCarriesTheStrikeShape:
+    def test_build_market_reads_strike_type_and_cap_strike_off_the_wire(self):
+        """#431, on the captured payload: every totals market reads
+        `"greater"` and no cap, through the one parser."""
+        from backend.kalshi.discovery import build_market
+
+        doc = json.loads(BY_SERIES.read_text(encoding="utf-8"))
+        seen = 0
+        for event in doc["events"]:
+            for raw in event["markets"]:
+                m = build_market(raw, market_type=MARKET_TYPE_TOTAL)
+                assert m.strike_type == "greater", m.ticker
+                assert m.cap_strike is None, m.ticker
+                seen += 1
+        assert seen > 80
+
+    def test_a_cap_strike_on_the_wire_is_carried(self):
+        from backend.kalshi.discovery import build_market
+
+        doc = json.loads(BY_SERIES.read_text(encoding="utf-8"))
+        raw = dict(doc["events"][0]["markets"][0], cap_strike=10.5, strike_type="between")
+        m = build_market(raw, market_type=MARKET_TYPE_TOTAL)
+        assert (m.strike_type, m.cap_strike) == ("between", 10.5)
+
+    def test_a_garbled_cap_strike_neither_raises_nor_slips_through(self):
+        """kalshi-platform, #431: `build_market` serves the quote refresh on
+        every market type, so an unreadable `cap_strike` must not raise; it
+        must still mark the market capped so the totals arm refuses it."""
+        from backend.kalshi.discovery import build_market
+
+        doc = json.loads(BY_SERIES.read_text(encoding="utf-8"))
+        for garbage in ("", "n/a", {"x": 1}, [1]):
+            raw = dict(doc["events"][0]["markets"][0], cap_strike=garbage)
+            m = build_market(raw, market_type=MARKET_TYPE_TOTAL)
+            assert m.cap_strike is None, garbage
+            assert m.cap_strike_present is True, garbage
