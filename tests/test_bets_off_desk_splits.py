@@ -93,6 +93,10 @@ def _build(tmp_path, *, flip=False):
     range), 2 cross-game 3-leg combos (too few), one 2-leg combo whose games
     cannot be read, one with no leg list. Half on the desk, half off."""
     conn = db.init_db(tmp_path / ("flip.db" if flip else "plain.db"))
+    _settled_desk_legs = lambda: conn.execute(  # noqa: E731
+        "UPDATE parlay_position_legs SET outcome = 'won', resolved_ms = 5, resolved_source = 'venue', "
+        "ask_at_purchase_tenths = 500"
+    )
     results = [bool(i % 2) != flip for i in range(12)]
     for i, w in enumerate(results):
         make = _on_desk if i % 2 == 0 else _off_desk
@@ -103,6 +107,9 @@ def _build(tmp_path, *, flip=False):
     _on_desk(conn, price=100, won=flip, events=[NFL_A, NFL_B, MLB_A])
     _off_desk(conn, price=300, won=not flip, events=["KXSYNTHEV1", NFL_A])
     _settle(conn, price=400, won=True)  # no legs recorded anywhere
+    # The desk's own legs settled too, so the by-leg-kind "all" block holds
+    # them and the off-desk block must not.
+    _settled_desk_legs()
     conn.commit()
     return conn
 
@@ -191,10 +198,10 @@ def test_the_off_desk_filter_changes_the_population_not_the_order(tmp_path):
     for league in kinds["leagues"]:
         for block in league["kinds"]:
             all_settled += block["settled"]
-    # 6 two-leg + 1 three-leg + 1 two-leg off the desk: 12 + 3 + 2 legs; the
-    # desk's own legs carry no recorded outcome here, so they are in neither.
+    # Off the desk: 6 two-leg + 1 three-leg + 1 two-leg combos = 17 legs. On
+    # the desk: 6 two-leg + 1 three-leg = 15 settled legs. "All" holds both.
     assert off_settled == 17
-    assert all_settled == 17
+    assert all_settled == 32
 
 
 def test_a_desk_position_is_never_read_as_off_the_desk(tmp_path):
