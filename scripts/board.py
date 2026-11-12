@@ -71,6 +71,7 @@ would make `pytest` a runtime dependency of `scripts/`.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import re
 import subprocess
@@ -452,6 +453,33 @@ def _tree_lines(node: dict, depth: int = 0) -> list[str]:
     return lines
 
 
+_ISO_DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
+
+
+def named_dates(*texts: str | None) -> list[dt.date]:
+    """Every valid YYYY-MM-DD in the given texts (invalid ones like 2026-13-40 skipped)."""
+    found: list[dt.date] = []
+    for text in texts:
+        for y, m, d in _ISO_DATE.findall(text or ""):
+            try:
+                found.append(dt.date(int(y), int(m), int(d)))
+            except ValueError:
+                continue
+    return found
+
+
+def is_overdue(node: dict, today: dt.date) -> bool:
+    """True when the ticket's TITLE names an ISO date and the latest one has passed.
+
+    Title only: a dated ticket carries its date in the title (#337, #401),
+    while a body cites past measurement and ADR dates that are not deadlines.
+    Reading the body flagged #347 and #360 on such citations on the first run
+    (2026-11-12). Latest, not any, and a title naming no date is never overdue.
+    """
+    dates = named_dates(node.get("title"))
+    return bool(dates) and max(dates) < today
+
+
 def _frontier_header(owner: str | None, model: str | None) -> str:
     if owner == "joe":
         return "waiting on Joe"
@@ -465,7 +493,11 @@ def render(
     all_nodes: list[dict],
     warning_lines: list[str],
     unreadable_reasons: list[str],
+    today: dt.date | None = None,
 ) -> str:
+    """`today` is injectable so tests do not depend on the clock."""
+    if today is None:
+        today = dt.date.today()
     out: list[str] = []
     add = out.append
 
@@ -485,7 +517,8 @@ def render(
     for owner, model, group_nodes in groups:
         add(_frontier_header(owner, model))
         for node in group_nodes:
-            add(f"  #{node['number']}  {node['title']}")
+            overdue = "  OVERDUE" if node["state"] == "open" and is_overdue(node, today) else ""
+            add(f"  #{node['number']}  {node['title']}{overdue}")
     add("")
 
     add("WARNINGS")
