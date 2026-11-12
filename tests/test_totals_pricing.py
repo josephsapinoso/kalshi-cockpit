@@ -26,7 +26,10 @@ from pathlib import Path
 import pytest
 
 from backend.kalshi.discovery import DiscoveredEvent, DiscoveredMarket
+import re
+
 from backend.kalshi.totals import (
+    total_line_is_half_point,
     MARKET_TYPE_TOTAL,
     TOTALS_MARKET,
     parse_total_subtitle,
@@ -434,3 +437,147 @@ class TestLinkInheritance:
             (total_ticker,),
         ).fetchall()
         assert refused == []
+
+
+BY_SERIES = Path(__file__).parent / "fixtures" / "events_totals_by_series.json"
+
+#: The leagues whose totals say `"Over N points"`, with no `scored` (#418).
+POINTS_SERIES = {"KXNFLTOTAL", "KXNCAAFTOTAL", "KXNBATOTAL", "KXNCAAMBTOTAL"}
+
+
+class TestYesIsTheOverOnEveryListedTotalsSeries:
+    """#418. The runner binds a total's YES to the book's `Over`. That was
+    measured on MLB and WNBA only. `events_totals_by_series.json` is one open
+    event per series Kalshi listed on 2026-11-12 plus a count over all of them.
+
+    Does not establish: anything about `KXMLBTOTAL` or `KXWNBATOTAL` beyond the
+    older fixture (neither was listed in November), or that a Kalshi total and
+    a sportsbook total settle on the same thing.
+    """
+
+    def _doc(self):
+        return json.loads(BY_SERIES.read_text(encoding="utf-8"))
+
+    def test_the_capture_holds_the_five_series_that_were_listed(self):
+        doc = self._doc()
+        kept = {e["series_ticker"] for e in doc["events"]}
+        assert kept == POINTS_SERIES | {"KXNHLTOTAL"}
+        # A series asked for and not listed is recorded as such, not skipped.
+        assert doc["census"]["KXMLBTOTAL"]["open_events"] == 0
+        assert doc["census"]["KXWNBATOTAL"]["open_events"] == 0
+
+    def test_yes_is_the_over_on_every_market_of_every_kept_event(self):
+        """An `"Under N"` YES anywhere would invert every wording downstream.
+        Three wire facts say the same thing and all three are checked: the
+        subtitle starts `Over`, `strike_type` is `greater`, and the rules text
+        resolves Yes on more than (or over) the line."""
+        markets = 0
+        for event in self._doc()["events"]:
+            for market in event["markets"]:
+                markets += 1
+                assert market["yes_sub_title"].startswith("Over "), market["ticker"]
+                assert market["strike_type"] == "greater", market["ticker"]
+                # "more than 23.5 points" or "over 192.5 total points": the
+                # line itself must follow, so "overtime" cannot satisfy this.
+                strike = re.escape(str(market["floor_strike"]))
+                assert re.search(
+                    rf"(more than|over) {strike} .*resolves to Yes",
+                    market["rules_primary"],
+                ), market["ticker"]
+                assert market.get("cap_strike") is None, market["ticker"]
+        assert markets > 80, f"only {markets} markets -- is the capture populated?"
+
+    def test_the_count_over_every_open_market_agrees(self):
+        for series, counts in self._doc()["census"].items():
+            if not counts["open_events"]:
+                continue
+            assert counts["strike_type"] == {"greater": counts["markets"]}, series
+            assert all(
+                shape.startswith("Over N ") for shape in counts["yes_sub_title_shape"]
+            ), series
+            assert counts["floor_strike_equals_subtitle_number"] == counts["markets"]
+            assert counts["whole_number_strikes"] == 0, series
+            assert counts["cap_strike_present"] == 0, series
+
+    def test_a_points_total_without_the_word_scored_parses_to_its_strike(self):
+        """The defect #418 found: four leagues say `"Over 44.5 points"` and the
+        grammar demanded `scored`, so every one of their totals was refused.
+
+        Mutation observed red: put `scored` back as required in
+        `_TOTAL_SUBTITLE`."""
+        seen: set[str] = set()
+        for event in self._doc()["events"]:
+            if event["series_ticker"] not in POINTS_SERIES:
+                continue
+            for market in event["markets"]:
+                line = parse_total_subtitle(market["yes_sub_title"])
+                assert line is not None, market["yes_sub_title"]
+                assert total_line_agrees(line, market["floor_strike"])
+                seen.add(event["series_ticker"])
+        assert seen == POINTS_SERIES
+
+    def test_an_nhl_total_is_still_refused_and_named(self):
+        """`goals` is not in the whitelist on purpose: whether a Kalshi NHL
+        total and a book's settle alike is unanswered. Mutation observed red:
+        add `goals?` to `_KNOWN_UNITS`."""
+        nhl = [e for e in self._doc()["events"] if e["series_ticker"] == "KXNHLTOTAL"]
+        assert nhl
+        for market in nhl[0]["markets"]:
+            assert parse_total_subtitle(market["yes_sub_title"]) is None
+            assert unrecognised_total_unit(market["yes_sub_title"]) == "goals"
+
+    def test_dropping_scored_did_not_loosen_anything_else(self):
+        assert parse_total_subtitle("Over 44.5 points") == 44.5
+        assert parse_total_subtitle("Under 44.5 points") is None
+        assert parse_total_subtitle("Over 44.5") is None
+        assert parse_total_subtitle("Over 44.5 points allowed") is None
+        assert parse_total_subtitle("Dallas: Over 24.5 points") is None
+        assert unrecognised_total_unit("Over 5.5 goals") == "goals"
+        assert unrecognised_total_unit("Over 44.5 points") is None
+        # A half's total is a different contract; `^Over` keeps it out even
+        # though `KXNFL1HTOTAL` would be typed `total` by its series suffix.
+        assert parse_total_subtitle("1st Half: Over 20.5 points") is None
+
+    def test_a_whole_number_line_is_refused_by_every_reader(self):
+        """A book pushes on the number and Kalshi settles it NO, so the two
+        Unders are different bets. `total_line_agrees` is what the runner, the
+        parlay reader and the alt-line check all call. Mutation observed red:
+        drop the half-point clause from `total_line_agrees`."""
+        assert total_line_is_half_point(44.5)
+        assert not total_line_is_half_point(44.0)
+        assert not total_line_is_half_point(44.25)
+        assert total_line_agrees(44.5, 44.5)
+        assert not total_line_agrees(44.0, 44.0)
+
+    def test_a_whole_number_total_writes_no_fair_price(self, conn):
+        _seed_total_rows(conn, rows=[
+            ("Over", 44.0, 1.95, "pinnacle"),
+            ("Under", 44.0, 1.95, "pinnacle"),
+        ])
+        counts = TestThePricingPath()._run(
+            conn, _total_event(strike=44.0, subtitle="Over 44 points")
+        )
+        assert counts.fair_prices_written == 0
+        assert counts.dropped_unresolved_outcome == 1
+        assert counts.errors == []
+
+    def test_a_points_total_reaches_a_fair_price(self, conn):
+        """End to end through the runner: the wire's own phrasing writes both
+        sides. Before #418 this wrote nothing and counted the market under
+        the generic `dropped_unresolved_outcome`."""
+        _seed_total_rows(conn, rows=[
+            ("Over", 44.5, 1.95, "pinnacle"),
+            ("Under", 44.5, 1.95, "pinnacle"),
+        ])
+        counts = TestThePricingPath()._run(
+            conn, _total_event(strike=44.5, subtitle="Over 44.5 points")
+        )
+        assert counts.fair_prices_written == 2
+        assert counts.dropped_unresolved_outcome == 0
+        names = [
+            r["outcome_name"] for r in conn.execute(
+                "SELECT outcome_name FROM fair_prices WHERE market = ? "
+                "ORDER BY outcome_name", (TOTALS_MARKET,),
+            )
+        ]
+        assert names == ["Over", "Under"]

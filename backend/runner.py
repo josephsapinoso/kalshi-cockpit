@@ -109,6 +109,7 @@ from .kalshi.totals import (
     parse_total_subtitle,
     total_book_point,
     total_line_agrees,
+    total_line_is_half_point,
     unrecognised_total_unit,
 )
 from .match.linker import (
@@ -1544,6 +1545,11 @@ def _price_totals_event(
                 counts.dropped_unresolved_outcome += 1
             continue
         if market.strike is None:
+            counts.dropped_unresolved_outcome += 1
+            continue
+        if not total_line_is_half_point(parsed):
+            # A whole-number line pushes at a book and settles NO here: not
+            # the same contract (`kalshi/totals.py`). Refused, not an error.
             counts.dropped_unresolved_outcome += 1
             continue
         if not total_line_agrees(parsed, market.strike):
