@@ -69,9 +69,12 @@ jobs:
   run:
     name: ${{ inputs.instrument }} on live
     runs-on: ubuntu-latest
-    # The backfill reads up to 400 legs' candlesticks sequentially (two venue
-    # GETs each); minutes, not tens of minutes.
-    timeout-minutes: 15
+    # The leg-price backfill reads up to 400 legs' candlesticks sequentially
+    # (two venue GETs each): minutes. The venue-legs backfill runs three
+    # passes of up to 1500 rows each; its first live run did 400 a pass in
+    # four minutes (2026-11-12), so 1500 is about fifteen and the cap leaves
+    # room for a slow venue.
+    timeout-minutes: 40
     steps:
       - name: Refuse an unchosen instrument
         if: inputs.instrument == 'choose-one'
@@ -105,9 +108,9 @@ jobs:
             backfill-leg-prices-commit)
               cmd="python /app/scripts/backfill_leg_prices.py --db /data/cockpit.db --commit --limit 400" ;;
             backfill-venue-combo-legs-dry-run)
-              cmd="python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --dry-run --limit 400" ;;
+              cmd="python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --dry-run --limit 1500" ;;
             backfill-venue-combo-legs-commit)
-              cmd="python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --commit --limit 400" ;;
+              cmd="python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --commit --limit 1500" ;;
             *)
               echo "::error::unknown instrument '${{ inputs.instrument }}'"; exit 1 ;;
           esac

@@ -27,10 +27,10 @@ AGREED = {
         "python /app/scripts/backfill_leg_prices.py --db /data/cockpit.db --commit --limit 400"
     ),
     "backfill-venue-combo-legs-dry-run": (
-        "python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --dry-run --limit 400"
+        "python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --dry-run --limit 1500"
     ),
     "backfill-venue-combo-legs-commit": (
-        "python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --commit --limit 400"
+        "python /app/scripts/backfill_venue_combo_legs.py --db /data/cockpit.db --commit --limit 1500"
     ),
 }
 
