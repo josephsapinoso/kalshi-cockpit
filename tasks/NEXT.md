@@ -154,7 +154,7 @@ the channel diagnostic (A17.6/A17.11).
 
 1. Question for Joe: your tailed-parlays page ends with four desk suggestions (A-D) — which do you want built? — #432
 2. #401 — the sweep-log / credits-day refusal read for 11-02..11-12; needs `fly auth login` on the laptop, or a counts-only refusal instrument in `instrument.yml`.
-3. #433 — board.py flags a ticket whose named date has passed (lane-builder).
+3. ~~#433~~ closed 2026-11-12 (`f19c59a0`): `board.py` marks a frontier ticket OVERDUE when the date in its TITLE has passed. It reads the title only; the body version flagged #347 and #360 on cited dates. Laptop-side, no deploy.
 4. #434 — linker: should an alias be exclusive (Tennessee St. at Tennessee cannot link).
 
 ## 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `850a0ff6`
