@@ -298,6 +298,7 @@ def register(
                 max_odds_age_ms=staleness.max_odds_age_s * 1000,
                 max_kalshi_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
                 request_alt_lines=request_alt_lines if odds is not None else None,
+                tailed_from=request.tailed_from,
             )
         except LookupRefused as exc:
             raise HTTPException(

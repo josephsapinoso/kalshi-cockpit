@@ -436,6 +436,7 @@ class TestTheRoute:
                 ],
                 "tagged": {},
                 "suggested": {},
+                "suggested_tailed_from": {},
                 "tailed_from": {},
                 "tailed_names": [],
             },

@@ -322,6 +322,9 @@ class ParlayCheckRequest(BaseModel):
     """
 
     text: str = Field(min_length=1, max_length=2000)
+    # Who the parlay is from (#424). Cleaned and limited by
+    # `pick_sources.clean_tailed_name`, which refuses in words.
+    tailed_from: Optional[str] = Field(default=None, max_length=400)
 
 
 class HeldLegRequest(BaseModel):

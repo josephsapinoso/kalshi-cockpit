@@ -630,8 +630,16 @@ export type CheckedParlayResult = {
   fee_coefficient?: number | null;
   legs: CheckedParlayLeg[];
   alt_buys: CheckedParlayAltBuy[];
-  /** How cards from a friend have done so far (#325): one fixed line. */
+  /** How tailed picks have done so far (#325): one fixed line. */
   friend_source_line: string | null;
+  /** Who the check said it was from (#424), cleaned; null when not given. */
+  tailed_from?: string | null;
+  /** That name's own record line, or the whole tailed line with no name. */
+  source_line?: string | null;
+  /** Names already used on tailed picks, in first-used order (#424). */
+  tailed_names?: string[];
+  /** "At 3c this pays if about 1 in 33 of these come in", or null. */
+  price_as_odds?: string | null;
   fair: {
     /** Probability in [0, 1]. `null` when `no_joint_reason` is set. */
     conservative: number | null;

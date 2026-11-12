@@ -18,8 +18,10 @@ stated gap, not a bug.
 `suggested_sources` offers a pre-selection only where the record PROVES it:
 a game-script card stamped with the ticker is `card`, and a position whose
 label is a ladder preset's key is `preset`. A suggestion is never stored --
-the tag exists only after his tap -- and nothing is ever suggested as `own`,
-`chat`, `friend` or `verdict`, because nothing in the record proves those.
+the tag exists only after his tap -- and a ticket whose Check a parlay
+lookup carried a name (`parlay_lookups.tailed_from`, #424) is offered
+`friend`. Nothing is ever suggested as `own`, `chat` or `verdict`, because
+nothing in the record proves those.
 
 What this module does NOT establish
 -----------------------------------
@@ -28,6 +30,8 @@ sources gets one. It is not a measurement of any source's skill: the per-source
 summary in `backend/bets.py` is the same expected-vs-won line the kinds carry,
 under the same >= 5-each-side rule, and it says nothing until a source has
 enough settled bets for the line to speak (ADR 0193).
+
+A name on the record is Joe's tap on Your bets, which can come after the ticket settled; a name typed on Check a parlay is only offered until then, so no per-name line separates names given before the result from names given after.
 """
 
 from __future__ import annotations
@@ -213,6 +217,30 @@ def suggested_sources(
             chunk,
         ):
             out[row[0]] = "card"
+    # A ticket whose CHECK carried a name (#424) is offered `friend`, only
+    # where no card or preset is proven. Never stored: the tag needs his tap.
+    for ticker in suggested_tailed_from(conn, wanted):
+        out.setdefault(ticker, "friend")
+    return out
+
+
+def suggested_tailed_from(
+    conn: sqlite3.Connection, tickers: Iterable[str]
+) -> dict[str, str]:
+    """`ticker -> name` from the NEWEST `parlay_lookups` row for the ticker
+    that carries a `tailed_from` (the name given on Check a parlay). A
+    suggestion only: nothing here writes `pick_sources`."""
+    wanted = sorted({t for t in tickers if t})
+    out: dict[str, str] = {}
+    for start in range(0, len(wanted), 500):
+        chunk = wanted[start:start + 500]
+        for row in conn.execute(
+            "SELECT minted_market_ticker, tailed_from FROM parlay_lookups "
+            f"WHERE tailed_from IS NOT NULL AND minted_market_ticker IN "
+            f"({_placeholders(len(chunk))}) ORDER BY requested_ms, id",
+            chunk,
+        ):
+            out[row[0]] = row[1]
     return out
 
 
@@ -238,6 +266,8 @@ def pick_source_payload(
     suggested = suggested_sources(
         conn, [t for t in wanted if t not in tagged]
     )
+    untagged = [t for t in wanted if t not in tagged]
+    names = suggested_tailed_from(conn, untagged)
     return {
         "options": [
             {"key": key, "label": PICK_SOURCE_LABELS[key]}
@@ -245,6 +275,9 @@ def pick_source_payload(
         ],
         "tagged": tagged,
         "suggested": suggested,
+        "suggested_tailed_from": {
+            t: n for t, n in names.items() if suggested.get(t) == "friend"
+        },
         "tailed_from": tailed_from_for(conn, wanted),
         "tailed_names": tailed_names(conn),
     }

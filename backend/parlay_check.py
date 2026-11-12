@@ -119,7 +119,7 @@ from typing import Callable, Optional, Sequence
 
 from backend.alt_lines import alt_candidate_for_leg
 from backend.core.correlation import CorrelationRefused
-from backend.core.fees import COMBO_TAKER_COEFFICIENT
+from backend.core.fees import COMBO_TAKER_COEFFICIENT, combo_taker_fee
 from backend.core.leg_words import no_title_words
 from backend.core.ladder import (
     UNUSABLE_REASONS,
@@ -134,6 +134,11 @@ from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
 from backend.kalshi.rfq import RfqRefused, mve_legs
 from backend.team_rest_reader import rest_for_games
 from backend.bets import KIND_COMBO, bets_record
+from backend.pick_sources import (
+    PickSourceRefused,
+    clean_tailed_name,
+    tailed_names,
+)
 from backend.parlays import (
     HORIZON_LADDER,
     NOTES,
@@ -280,10 +285,33 @@ def _probable_bug_fields(
     }
 
 
-def friend_source_line(conn) -> Optional[str]:
-    """One line on how a friend's cards have done so far (#325), from the
+def _record_line(who: str, block: Optional[dict]) -> str:
+    """The one fixed-wording record line, shared by both forms below.
+
+    It is HIS tails at HIS prices, not the sharp's own record. Every printed
+    figure comes from `expected` (`won`, `n`, the range), which covers only
+    tickets with a readable price, so the counts are over the same tickets.
+    The too-few and zero states print the count of cards (wins + losses)."""
+    if block is None:
+        return f"{who}: too few to tell yet (0 cards)"
+    expected = block["expected"]
+    if expected is None or expected["too_few"]:
+        cards = block["wins"] + block["losses"]
+        return f"{who}: too few to tell yet ({cards} cards)"
+    return (
+        f"{who} ({expected['n']} cards): their prices said about "
+        f"{expected['expected']:g} would win, {expected['won']} did; "
+        f"anything from {expected['range_low']} to {expected['range_high']} "
+        "is normal if those prices were fair"
+    )
+
+
+def friend_source_line(conn, name: Optional[str] = None) -> Optional[str]:
+    """One line on how tailed picks have done so far (#325, #424), from the
     existing `by_source` block for the `friend` source on combinations.
 
+    With `name`, that name's own `by_name` entry (matched case-folded) and
+    "Your tails of <name>"; without, "Your tailed picks".
     Fixed wording, no colour, no verdict: either "about {expected} expected
     to win, {won} did" or "too few to tell yet ({n} cards)" below
     `expected_block`'s floor. `None` when the record cannot be read."""
@@ -300,16 +328,70 @@ def friend_source_line(conn) -> Optional[str]:
         ),
         None,
     )
-    if block is None:
-        return "Friend's picks so far: too few to tell yet (0 cards)"
-    cards = block["wins"] + block["losses"]
-    expected = block["expected"]
-    if expected is None or expected["too_few"]:
-        return f"Friend's picks so far: too few to tell yet ({cards} cards)"
-    return (
-        f"Friend's picks so far: about {expected['expected']:g} expected to "
-        f"win, {block['wins']} did"
+    if name is None:
+        return _record_line("Your tailed picks so far", block)
+    entry = next(
+        (
+            n
+            for n in (block or {}).get("by_name") or []
+            if n.get("name") and n["name"].casefold() == name.casefold()
+        ),
+        None,
     )
+    return _record_line(f"Your tails of {name} so far", entry)
+
+
+def price_as_odds(ask_tenths) -> Optional[str]:
+    """The ticket's break-even rate at its one price (#424): "At 3c a
+    contract on the book now, 3.2c with Kalshi's fee, a ticket like this has
+    to win about 1 time in 31 to break even."
+
+    The price is the ask on the PUBLIC book at the moment of the check.
+    Combinations mostly fill by RFQ, at a different price, so this is not
+    the price he will necessarily pay. The fee is `fees.combo_taker_fee` for
+    one contract (no second formula here), whose coefficient (0.071) is the
+    applied estimate, not a measured constant. N = 1000 / (price + fee) in
+    tenths. Arithmetic on this one price: it names no record or threshold
+    and does not establish that the price is fair. `None` when there is no
+    price, it is outside 1..999 tenths, or the fee cannot be computed."""
+    if not isinstance(ask_tenths, int) or isinstance(ask_tenths, bool):
+        return None
+    if not 1 <= ask_tenths <= 999:
+        return None
+    fee_dollars = combo_taker_fee(ask_tenths, 1)
+    if fee_dollars is None:
+        return None
+    cost_tenths = ask_tenths + fee_dollars * 1000
+    n = 1000 / cost_tenths
+    n_text = f"{round(n)}" if n >= 9.95 else f"{n:.1f}"
+    return (
+        f"At {ask_tenths / 10:g}c a contract on the book now, "
+        f"{cost_tenths / 10:.1f}c with Kalshi's fee, a ticket like this has "
+        f"to win about 1 time in {n_text} to break even."
+    )
+
+
+def _stamp_tailed_from(conn, name: Optional[str]) -> None:
+    """Put `name` on the `parlay_lookups` row this check just wrote.
+    `_record_lookup` (backend/parlays.py, outside this lane) has no such
+    parameter, so the row it inserted on this connection is updated by its
+    rowid. A check that wrote no row never reaches here."""
+    if name is None:
+        return
+    conn.execute(
+        "UPDATE parlay_lookups SET tailed_from = ? "
+        "WHERE id = (SELECT last_insert_rowid())",
+        (name,),
+    )
+    conn.commit()
+
+
+def _known_tailed_names(conn) -> list[str]:
+    try:
+        return tailed_names(conn)
+    except sqlite3.Error:
+        logger.exception("tailed names read failed; the check offers none")
+        return []
 
 
 def _strip_trailing_punctuation(token: str) -> str:
@@ -528,6 +610,7 @@ async def check_parlay_text(
     horizon: str = WIDEST_HORIZON,
     max_kalshi_quote_age_ms: Optional[int] = None,
     request_alt_lines: Optional[Callable[[str, str], object]] = None,
+    tailed_from: Optional[str] = None,
 ) -> dict:
     """Read a pasted combination's legs off Kalshi and price it. See module
     docstring for the pipeline, the response contract and what is
@@ -540,6 +623,12 @@ async def check_parlay_text(
     market exists on the venue by this point, so the failure is recorded
     with the ticker before the caller is told).
     """
+    try:
+        tailed_from = clean_tailed_name(tailed_from)
+    except PickSourceRefused as exc:
+        raise LookupRefused(
+            422, str(exc).replace("Nothing was tagged.", "Nothing was checked.")
+        ) from exc
     match = _match_ticker(text)
     if match is None:
         raise LookupRefused(
@@ -873,6 +962,7 @@ async def check_parlay_text(
             error=f"orderbook: {exc}",
             leg_details=leg_details,
         )
+        _stamp_tailed_from(conn, tailed_from)
         raise LookupRefused(
             502,
             f"Kalshi's order book for {ticker} could not be read ({exc}). "
@@ -932,6 +1022,7 @@ async def check_parlay_text(
         error=None if status == "priced" else book_detail,
         leg_details=leg_details,
     )
+    _stamp_tailed_from(conn, tailed_from)
 
     quoted: Optional[dict] = None
     if status == "priced":
@@ -1017,6 +1108,15 @@ async def check_parlay_text(
         "hold_display": f"{hold * 100:.1f}%" if hold is not None else None,
         # How cards from a friend have done so far (#325): one fixed line.
         "friend_source_line": friend_source_line(conn),
+        # #424: who it is from (if given), that name's own record line, the
+        # known names for the tap targets, and the price as odds. Facts, no
+        # verdict; no band record at this moment (ADR 0196 s2.1).
+        "tailed_from": tailed_from,
+        "source_line": friend_source_line(conn, tailed_from),
+        "tailed_names": _known_tailed_names(conn),
+        "price_as_odds": (
+            price_as_odds(ask_tenths) if status == "priced" else None
+        ),
         # #334: the Take-it path's coefficient (`core.fees`), imported.
         "fee_coefficient": float(COMBO_TAKER_COEFFICIENT),
         "words": words,
