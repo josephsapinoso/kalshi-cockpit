@@ -412,6 +412,7 @@ class TestTheRoute:
             "first_settled_ms": None,
             # Town hall #413: how many ranges the page shows; none here.
             "range_count": 0,
+            "range_count_off_desk": 0,
             "sections": {"single": empty_section, "combo": empty_section},
             "clv_coverage": {
                 "population": "single",

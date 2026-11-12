@@ -243,6 +243,7 @@ export type {
 export type {
   BetKind,
   BetsKindSummary,
+  BetsPopulation,
   BetsRecord,
   BetsSection,
   ByNameBlock,
@@ -250,6 +251,8 @@ export type {
   ExpectedBlock,
   PickSourceKey,
   PickSourcesBlock,
+  SameGameCell,
+  SameGameSplit,
   SettledBet,
 } from "./types/bets";
 export type {
