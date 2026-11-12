@@ -1,5 +1,20 @@
 {
   "_note": "Captured 2026-11-12 from GET /events?series_ticker=<S>&status=open&with_nested_markets=true (kalshi-platform's #430 review). First open event per series, first three markets kept verbatim; nothing else edited. Period and half totals use the full-game subtitle grammar, so only discovery's scope check keeps them out of the totals join.",
+  "endpoint": "https://api.elections.kalshi.com/trade-api/v2/events",
+  "request": {
+    "endpoint": "https://api.elections.kalshi.com/trade-api/v2/events",
+    "method": "GET",
+    "note": "One GET per series_ticker, 2026-11-12, by kalshi-platform's #430 review. Kept the first open event per series and its first three markets, verbatim.",
+    "params": {
+      "series_ticker": [
+        "KXNHL1PTOTAL",
+        "KXNFL1HTOTAL",
+        "KXNBA1HTOTAL"
+      ],
+      "status": "open",
+      "with_nested_markets": "true"
+    }
+  },
   "events": [
     {
       "category": "Sports",

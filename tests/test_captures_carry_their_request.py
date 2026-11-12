@@ -365,6 +365,14 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
         how="A `request` block via `capture_envelope.write_capture` (#267/#360): "
             "GET /events?series_ticker=KXNCAAMBGAME, kept to one event.",
     ),
+    "events_period_totals.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "status"),
+        endpoint_in=("endpoint",),
+        how="A `request` block written by hand from kalshi-platform's #430 "
+            "review captures: one GET per series_ticker listed there, first "
+            "open event and its first three markets kept verbatim.",
+    ),
     "events_totals_by_series.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("series_ticker", "status"),
