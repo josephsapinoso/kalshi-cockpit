@@ -930,7 +930,7 @@ function PopulationToggle({ population }: { population: BetsPopulation }) {
           </Link>
         ))}
       </div>
-      <p className="mt-1 text-muted">
+      <p className="mt-1 max-w-[65ch] text-muted">
         {population === "off_desk"
           ? "Showing only combinations you bought in the Kalshi app without pricing them here: the leg counts, same-game or cross-game, and each leg below."
           : "Showing every settled combination: the leg counts, same-game or cross-game, and each leg below."}
