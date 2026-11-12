@@ -277,7 +277,7 @@ class TestTheVerdictCannotDeclareBelowTheFloor:
         assert build_report(dump_rows).verdict == "UNRESOLVED"
 
     def test_the_report_says_how_many_clusters_remain(self, dump_rows):
-        """A screen has to be able to show `86 / 713` without doing arithmetic.
+        """A screen has to be able to show `86 / 861` without doing arithmetic.
 
         **The counter is the primary's, not the record's, since 2026-08-25.**
         It read `199 / 300` while `fit` was the pooled fit; §P4 makes the modal
@@ -287,15 +287,17 @@ class TestTheVerdictCannotDeclareBelowTheFloor:
         this change refuses.
 
         **The floor is 713, not 300, since Amendment 2 §B4 (2026-08-29)**, so
-        627 clusters remain rather than 214. Same claim, moved threshold: this
-        assertion is not weakened, it is re-anchored to the amended floor.
+        627 clusters remained rather than 214. **And 861 since Amendment 3
+        (2026-10-01)**, so 775 remain on this snapshot. Same claim, moved
+        threshold: this assertion is not weakened, it is re-anchored to the
+        amended floor each time the registration moves it (#416).
 
         Mutation observed red: return `self.clusters_to_declare` from
         `clusters_remaining`.
         """
         report = build_report(dump_rows)
-        assert report.clusters_to_declare == 713
-        assert report.clusters_remaining == 627
+        assert report.clusters_to_declare == 861
+        assert report.clusters_remaining == 775
 
     def test_the_smallest_resolvable_beta_exceeds_the_estimate(self, dump_rows):
         """Printed before `beta_hat` because reading the effect first is how a
@@ -400,11 +402,12 @@ class TestGEffIsReportedBesideEveryG:
 
     def test_the_ratchet_check_is_computed_not_assumed(self, dump_rows):
         """§B6(5): `sd(clv_tenths)` on the modal population against the value
-        the 713 floor was computed at. On this snapshot it does not exceed --
-        which leaves the floor at 713, because the floor is a **ratchet** and a
-        smaller sigma never lowers it."""
+        the floor was computed at: 35.4271 since Amendment 3, the value 861
+        was solved at. On this snapshot it does not exceed -- which leaves the
+        floor where it is, because the floor is a **ratchet** and a smaller
+        sigma never lowers it."""
         report = build_report(dump_rows)
-        assert report.ratchet_sigma_tenths == 31.6915
+        assert report.ratchet_sigma_tenths == 35.4271
         assert report.sd_clv < report.ratchet_sigma_tenths
         assert report.sigma_exceeds_ratchet is False
 
@@ -502,8 +505,20 @@ class TestTheA4DowngradeChangesTheVerdictEndToEnd:
     code runs.
     """
 
+    #: Above the declaring floor, with room to spare. It was 750 against the
+    #: 713 of Amendment 2; Amendment 3 raised the floor to 861 and a 750-cluster
+    #: population can no longer declare anything, so every case below would
+    #: read UNRESOLVED for the wrong reason (#416).
+    CLUSTERS = 900
+
+    def test_the_population_clears_the_declaring_floor(self):
+        """The class is only evidence about §A4 if §6 could declare on it."""
+        from backend.analysis.signal_test import MIN_CLUSTERS_TO_DECLARE
+
+        assert self.CLUSTERS >= MIN_CLUSTERS_TO_DECLARE
+
     def _population(self, *, wide_beta, narrow_beta, narrow_edge, noise, seed=7):
-        """750 clusters, four rows each: two wide-`edge` rows carrying the
+        """900 clusters, four rows each: two wide-`edge` rows carrying the
         `suspicious_edge` code and two narrow ones carrying nothing.
 
         The split is the registration's own: `suspicious_edge` fires on
@@ -511,13 +526,13 @@ class TestTheA4DowngradeChangesTheVerdictEndToEnd:
         regressor itself**, which is why §A4 exists -- those rows sit at the
         extreme right of the x-axis and carry maximum leverage by construction.
 
-        Removing the group empties no cluster, so `G` is unchanged at 750 and
+        Removing the group empties no cluster, so `G` is unchanged at 900 and
         the group is testable. That is the property the audit's pre-reasoning
         got wrong in the flattering direction.
         """
         rng = np.random.default_rng(seed)
         rows = []
-        for cluster in range(750):
+        for cluster in range(self.CLUSTERS):
             key = f"GAME-{cluster}"
             half = 1.0 + cluster % 3
             for edge in (-100.0, 100.0):
@@ -556,14 +571,14 @@ class TestTheA4DowngradeChangesTheVerdictEndToEnd:
                 wide_beta=0.0, narrow_beta=0.0, narrow_edge=0.1, noise=8.0
             )
         )
-        assert report.fit.n_clusters == 750
+        assert report.fit.n_clusters == self.CLUSTERS
         assert report.section6_verdict == "NO SIGNAL"
         assert report.verdict == "UNRESOLVED"
         assert report.downgraded_by == "suspicious_edge"
 
         group = {g.name: g for g in report.a4_groups}["suspicious_edge"]
         assert group.testable is True
-        assert group.clusters_remaining == 750
+        assert group.clusters_remaining == self.CLUSTERS
         assert group.upper >= 0.40
 
     def test_no_signal_stands_when_the_group_removal_leaves_it_standing(self):
@@ -580,7 +595,7 @@ class TestTheA4DowngradeChangesTheVerdictEndToEnd:
                 wide_beta=0.0, narrow_beta=0.0, narrow_edge=0.5, noise=5.0
             )
         )
-        assert report.fit.n_clusters == 750
+        assert report.fit.n_clusters == self.CLUSTERS
         assert report.section6_verdict == "NO SIGNAL"
         assert report.verdict == "NO SIGNAL"
         assert report.downgraded_by is None
@@ -822,9 +837,9 @@ class TestTheRouteCannotPublishTheEffectAlone:
         payload = _signal_payload(build_report(dump_rows), computed_ms=0)
         assert payload["verdict"] == "UNRESOLVED"
         assert payload["may_declare"] is False
-        # 713 - 86, on the amended floor of Amendment 2 §B4.
-        assert payload["population"]["clusters_to_declare"] == 713
-        assert payload["population"]["clusters_remaining"] == 627
+        # 861 - 86, on the amended floor of Amendment 3.
+        assert payload["population"]["clusters_to_declare"] == 861
+        assert payload["population"]["clusters_remaining"] == 775
 
     def test_the_payload_names_the_population_the_verdict_is_on(self, dump_rows):
         """A reader who sees `clusters` without §P4's flag cannot tell which

@@ -15,9 +15,10 @@ import Hint from "@/components/Hint";
  * has already been wrong about at least once:
  *
  * 1. **`UNRESOLVED` may not be rendered as "no signal".** The registration
- *    forbids declaring below 713 clusters — Amendment 2 section B4 raised that
- *    floor from 300 on 2026-08-29, after the power check's own noise trigger
- *    fired — and that look has not been taken. CLAUDE.md's "for planning, treat
+ *    forbids declaring below 861 clusters — Amendment 2 section B4 raised that
+ *    floor from 300 to 713 on 2026-08-29, after the power check's own noise
+ *    trigger fired, and Amendment 3 raised it to 861 on 2026-10-01 — and the §7(1) look at
+ *    `G = 1000` returned UNRESOLVED on 2026-10-01. CLAUDE.md's "for planning, treat
  *    it as settled" is an instruction about roadmaps, not a verdict, and this
  *    strip is not a roadmap.
  * 2. **`beta_hat` never appears without `se_cluster`, `G` and the interval.**

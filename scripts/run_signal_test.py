@@ -36,9 +36,10 @@ gets believed.
 
 What this does not establish
 ----------------------------
-- **Nothing at `G < 713`.** Every such run prints UNRESOLVED. That is a real
+- **Nothing at `G < 861`.** Every such run prints UNRESOLVED. That is a real
   answer, it is not "no signal", and it may not be reported as one. The floor
-  was 300 until Amendment 2 §B4 raised it on 2026-08-29, after the power
+  is 861 since Amendment 3 (2026-10-01). It
+  was 300 until Amendment 2 §B4 raised it to 713 on 2026-08-29, after the power
   check's own trigger fired at `sd(clv_tenths) = 31.6915` on the modal
   population. It is a ratchet: it does not fall if a later look measures less.
 - **Nothing about whether nominal `G` is the right unit.** Section 3 prints

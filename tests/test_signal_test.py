@@ -229,7 +229,7 @@ class TestTheDecisionRuleIsTheRegisteredOne:
         )
 
     def test_below_the_floor_nothing_can_be_declared(self):
-        """The registration: a look at `G < 713` "may not declare SIGNAL, BUG
+        """The registration: a look at `G < 861` "may not declare SIGNAL, BUG
         or NO SIGNAL", however extreme the estimate.
 
         Mutation: remove the floor check. A huge beta at G = 10 then reads
@@ -246,11 +246,11 @@ class TestTheDecisionRuleIsTheRegisteredOne:
         `NO SIGNAL, 311 of 300 games` was displayed and audited and refused, and
         the constant that permitted it stayed at 300 for four more days. This
         test is the one that goes red if it is put back: every estimate extreme
-        enough to declare, at every `G` from 300 up to one short of 713, must
+        enough to declare, at every `G` from 300 up to one short of the floor, must
         still come back UNRESOLVED.
 
         Mutation observed red: `MIN_CLUSTERS_TO_DECLARE = 300`. The 300, 311 and
-        712 cases then declare SIGNAL / NO SIGNAL / BUG on cue.
+        floor-minus-one cases then declare SIGNAL / NO SIGNAL / BUG on cue.
         """
         for g in (MIN_CLUSTERS_FOR_LOGO_TEST, 311, MIN_CLUSTERS_TO_DECLARE - 1):
             # A slope so far from zero that only the floor can be refusing it.
@@ -286,15 +286,16 @@ class TestTheDecisionRuleIsTheRegisteredOne:
         """An earlier ADR draft proposed 0.64 and a floor of 186. Both are
         amendments to the registration, not code changes.
 
-        **713 since Amendment 2 §B4**, and it is a ratchet: it does not fall if
-        a later look measures a smaller `sigma`. 0.40 and `tuning = 300` are
+        **713 since Amendment 2 §B4 and 861 since Amendment 3**, and it is a
+        ratchet: it does not fall if a later look measures a smaller `sigma`.
+        35.4271 is the sigma 861 was solved at. 0.40 and `tuning = 300` are
         left standing by that amendment in those words (§B5, §B6(4)).
         """
-        assert MIN_CLUSTERS_TO_DECLARE == 713
+        assert MIN_CLUSTERS_TO_DECLARE == 861
         assert NO_SIGNAL_UPPER_LIMIT == 0.40
         assert FULL_PASS_THROUGH == 1.0
         assert MIN_CLUSTERS_FOR_LOGO_TEST == 300
-        assert RATCHET_SIGMA_TENTHS == 31.6915
+        assert RATCHET_SIGMA_TENTHS == 35.4271
 
     def test_the_boundary_tuning_did_not_move_with_the_floor(self):
         """§B6(4): `tuning` is the Robbins mixture parameter, **not the floor**.

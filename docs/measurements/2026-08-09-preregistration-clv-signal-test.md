@@ -2249,6 +2249,7 @@ and is not used.
   further declaring look exists under it for the constant to govern. A
   successor registration fixes its own floor. The harness will keep printing
   `EXCEEDS` against 31.6915; this amendment is the answer to that line.
+  **[SUPERSEDED in code by the 2026-11-12 note]**
 - **No past verdict changes.**
 
 ## C4. Registration record for this amendment
@@ -2265,3 +2266,43 @@ tuning             300   UNCHANGED
 past verdicts      UNCHANGED
 source             docs/measurements/2026-10-01-clv-signal-test-result.md
 ```
+
+---
+
+## Note, 2026-11-12 — NOT AN AMENDMENT. NO RULE HERE CHANGES. (#416)
+
+**The code constant now states the floor of Amendment 3 §C2. It changes no
+registered number.** The
+floor is 861 by §C2, the threshold is 0.40, `tuning` is 300, and the §8 result
+is UNRESOLVED, all exactly as above.
+
+§C3 left `backend/analysis/signal_test.py` at `MIN_CLUSTERS_TO_DECLARE = 713`
+and `RATCHET_SIGMA_TENTHS = 31.6915`, on the reasoning that no declaring look
+remained for the constant to govern. That reasoning missed one reader: the
+constant is served by `/api/signal` as `clusters_to_declare`, and the desk
+printed "the registered floor of 713" beside copy that says 861 (town hall
+2026-10-30, finding 2). On 2026-11-12 the two constants were set to 861 and
+35.4271, which is what this registration says the floor is and the sigma it
+was solved at.
+
+What this does and does not do:
+
+- **No past verdict changes.** The floor enters `section6_verdict` only as
+  `G < floor`. The published looks sat at `G = 199`, `216` and the
+  unregistered pooled `311`, all below 713, and at `G = 1000`, `1047` and
+  `1055`, all above 861. None is in the record at `G` 713 to 860. The live
+  strip recomputed hourly while `G` passed through that range in September,
+  under the then-registered 713; what it showed there was not recorded, is not
+  part of the record, and nothing here changes it.
+- **The harness's ratchet line now compares against 35.4271**, the cut's sd
+  rounded to four places, using a strict `>`. Whether a re-run on the §7(1)
+  cut prints `EXCEEDS` therefore depends on digits that were never recorded,
+  and it was not re-run. The full record's 36.0995 (§C1) exceeds; it carries
+  no verdict and no look remains under this registration.
+- **`MIN_CLUSTERS_FOR_LOGO_TEST` stays 300 and `BOUNDARY_TUNING` stays 300.**
+- The §A4 end-to-end fixtures in `tests/test_clv_signal.py` were moved from
+  750 synthetic clusters to 900 so that they still clear the floor. They are
+  shapes, not findings, and no assertion in them was loosened.
+
+Not established: nothing here was re-fitted. No statistic was recomputed on
+the record for this note.

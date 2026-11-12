@@ -51,6 +51,18 @@ expression, unchanged, for the power check's own 3.8-tenth target:
     always_valid_multiplier(713, tuning=300, alpha=0.05) * 31.6915 / sqrt(713)
         = 3.2002 * 31.6915 / 26.702 = 3.7982  <= 3.8
 
+**And `G < 861` since Amendment 3 (2026-10-01).** The ratchet below fired at
+the stopping-rule look: `sd(clv_tenths)` on the modal population at the cut was
+35.4271, above 31.6915, and the same expression solved at that sigma gives 861
+(3.7996 <= 3.8; 860 gives 3.8021). Amendment 3 §C3 left this file at 713
+because collection had ended and no declaring look remained for the constant to
+govern. It was moved on 2026-11-12 (#416) because the constant also reaches the
+screen: `/api/signal` serves it as `clusters_to_declare` and the desk was
+printing 713 as the registered floor beside copy that says 861. No past verdict
+changes: the published looks sat at `G = 199`, `216` and the unregistered
+pooled `311` (below both floors) and at `G = 1000`, `1047` and `1055` (above
+both).
+
 Two things follow that a reader has to hold together:
 
 - **`tuning` stays at 300** (§B6(4)). It is the Robbins mixture parameter, not
@@ -58,7 +70,8 @@ Two things follow that a reader has to hold together:
   Re-tuning it to 713 would silently restate the 2026-08-16 and 2026-08-25
   intervals. `BOUNDARY_TUNING` exists so the two numbers cannot be confused
   again -- they were one constant here until the floor moved.
-- **The floor is a RATCHET.** It is fixed once, at 713. A later look measuring
+- **The floor is a RATCHET.** It was fixed at 713 and has been raised once
+  since, to 861. A later look measuring
   a *smaller* `sigma` does not lower it; a later look measuring a larger one
   raises it again, by a further dated amendment written before that look
   declares. A floor recomputed from whatever noise a look happens to see is a
@@ -67,7 +80,7 @@ Two things follow that a reader has to hold together:
 
 What this module does not establish
 ------------------------------------
-- **Nothing at `G < 713`.** `verdict()` returns `UNRESOLVED` below the floor and
+- **Nothing at `G < 861`.** `verdict()` returns `UNRESOLVED` below the floor and
   will not return `SIGNAL` or `NO SIGNAL` there, however extreme the estimate.
   The floor is not a significance threshold -- the always-valid boundary handles
   that -- it is the point below which the test cannot resolve any plausible
@@ -108,15 +121,16 @@ from ..gate import always_valid_multiplier
 # threshold. Both live in the registration; they are named here so a reader can
 # see them without a second file, and pinned by tests so they cannot drift.
 #
-# **713 IS A RATCHET, raised from 300 by Amendment 2 §B4 on 2026-08-29.** It is
-# fixed once, at 713, and it DOES NOT FALL if a later look happens to measure a
-# smaller `sigma`; a larger `sigma` raises it again in a further dated
-# amendment, written before that look declares anything. Recomputing a floor
-# from the noise a look happens to see is choosing a threshold after the data.
+# **THE FLOOR IS A RATCHET: 300, then 713 by Amendment 2 §B4 on 2026-08-29,
+# then 861 by Amendment 3 on 2026-10-01.** It DOES NOT FALL if a later look
+# happens to measure a smaller `sigma`; a larger `sigma` raises it again in a
+# further dated amendment, written before that look declares anything.
+# Recomputing a floor from the noise a look happens to see is choosing a
+# threshold after the data.
 #
 # Do not lower this to make a verdict reachable. The registration governs where
-# it and this file disagree, and it says 713.
-MIN_CLUSTERS_TO_DECLARE = 713
+# it and this file disagree, and it says 861.
+MIN_CLUSTERS_TO_DECLARE = 861
 NO_SIGNAL_UPPER_LIMIT = 0.40
 FULL_PASS_THROUGH = 1.0
 
@@ -146,9 +160,9 @@ ONE_GROUP_LEVERAGE_SHARE = 0.50
 # §B4's ratchet check, reportable at every look (§B6(5)): `sd(clv_tenths)` on
 # the modal-version population. Above this the floor is raised again by a
 # further dated amendment BEFORE the next declaring look. This constant is the
-# value the current floor of 713 was computed at, not a trigger for code to act
+# value the current floor of 861 was computed at, not a trigger for code to act
 # on by itself -- a floor change is an amendment, never an edit here.
-RATCHET_SIGMA_TENTHS = 31.6915
+RATCHET_SIGMA_TENTHS = 35.4271
 
 # Relative floor below which the residualised regressor is treated as having no
 # variance at all. It is not a tuning knob: `1e-24` is far below any real

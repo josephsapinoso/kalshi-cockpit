@@ -68,7 +68,7 @@ _signal_cache: dict[str, object] = {}
 #
 # Registration section 7: data collection ends at the first of G = 1000 games
 # (condition 1) or 2027-02-15 (condition 2). Amendment 2 B4 moved only
-# condition 3's floor (300 -> 713); conditions 1 and 2 are unchanged. Past
+# condition 3's floor (300 -> 713 -> 861, Amendment 3); conditions 1 and 2 are unchanged. Past
 # either, the registered statistic has nothing new to be computed over, so
 # re-running the section S1 join hourly only burns the `kalshi_quotes` scan
 # for a number that is final. This freezes the *serving*, not the statistic:
@@ -330,9 +330,10 @@ def _signal_payload(report: SignalReport, computed_ms: int) -> dict:
         ),
         "note": (
             "beta is tenths of realised closing-line value per tenth of claimed "
-            "edge. UNRESOLVED below 713 clusters is a real answer and is NOT "
-            "'no signal' -- Amendment 2 section B4 raised that floor from 300 "
-            "on 2026-08-29 after the power check's own sigma trigger fired. "
+            "edge. UNRESOLVED below 861 clusters is a real answer and is NOT "
+            "'no signal' -- Amendment 3 raised that floor from 713 on "
+            "2026-10-01, when the sigma ratchet of Amendment 2 section B4 "
+            "fired at the stopping-rule look. "
             "g_eff is the effective cluster count and is a REPORTABLE, never a "
             "threshold: G = 311 was 4.26 effective clusters. The cluster key is "
             "COALESCE(event_ticker, ticker), which is not the gate's ADR 0029 "

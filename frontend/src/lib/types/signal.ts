@@ -354,8 +354,8 @@ export type Signal = {
   /**
    * The registered string, never a paraphrase. `UNRESOLVED` is a real answer
    * and **may not be rendered as "no signal"** -- the registration forbids
-   * declaring below 713 clusters (Amendment 2 section B4, which raised the
-   * floor from 300 on 2026-08-29). `REFUSED` is different again: it means no
+   * declaring below 861 clusters (Amendment 3, 2026-10-01; it was 713 from
+   * Amendment 2 section B4 and 300 before that). `REFUSED` is different again: it means no
    * look happened at all.
    */
   verdict: "SIGNAL" | "BUG, NOT SIGNAL" | "NO SIGNAL" | "UNRESOLVED" | "REFUSED";

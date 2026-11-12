@@ -39,11 +39,12 @@ What this module does not establish
   a call into a registered estimator. A disagreement between this file and
   `docs/measurements/2026-08-09-preregistration-clv-signal-test.md` is a bug
   here.
-- **Nothing at `G < 713`.** `SignalReport.verdict` is `UNRESOLVED` below the
-  floor, which Amendment 2 §B4 raised from 300 on 2026-08-29 after the power
-  check's own `sigma` trigger fired. That is a real answer and may not be
+- **Nothing at `G < 861`.** `SignalReport.verdict` is `UNRESOLVED` below the
+  floor, which Amendment 2 §B4 raised from 300 to 713 on 2026-08-29 after the
+  power check's own `sigma` trigger fired, and Amendment 3 raised to 861 on
+  2026-10-01 when it fired again. That is a real answer and may not be
   reported as "no signal".
-- **Nothing about whether 713 nominal clusters are 713 clusters' worth of
+- **Nothing about whether 861 nominal clusters are 861 clusters' worth of
   evidence.** `SignalReport.g_eff` reports the effective count and §B7 refuses
   to make it a threshold: at `G = 311` it was `4.26`. The report carries the
   number so a reader cannot miss it; it does not act on it.
@@ -501,7 +502,7 @@ class SignalReport:
 
     @property
     def sigma_exceeds_ratchet(self) -> Optional[bool]:
-        """§B6(5): does `sd(clv_tenths)` exceed the value 713 was computed at?
+        """§B6(5): does `sd(clv_tenths)` exceed the value the floor was computed at?
 
         `True` obliges a **further dated amendment raising the floor again**,
         written before the next look declares anything. `None` when there is no
@@ -642,7 +643,7 @@ def build_report(
             implied_spurious_slope=None,
             fit=None,
             # A refused run has no verdict, and "UNRESOLVED" is a verdict --
-            # it is the answer at G < 713, which is a *completed* look. Saying
+            # it is the answer at G < 861, which is a *completed* look. Saying
             # it here would report a took-place look that did not.
             verdict="REFUSED",
             section6_verdict="REFUSED",
