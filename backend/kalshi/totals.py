@@ -30,6 +30,30 @@ NHL's `goals`. `tests/fixtures/events_totals_by_series.json` carries one event
 per listed series and a count over all of them. YES was the Over on every one
 (`strike_type = "greater"`, and the rules text says "more than N").
 
+**NHL `goals` is read since #430 (2026-11-12), on the lines where the
+overtime rule cannot matter.** Kalshi's `KXNHLTOTAL` `rules_secondary`:
+"Goals scored during regulation and overtime count as normal. If the game is
+decided by a shootout, the shootout result will be recorded as one goal
+awarded to the winning team." DraftKings, one of the ten feed books, says the
+same in its house rules filed with the Massachusetts Gaming Commission
+(`DraftKings-House-Rules-8.1.24.pdf`, Ice Hockey, p. 95-96): "In the event of
+the game being decided by a penalty shootout, one goal will be added to the
+winning team's score and the game total for settlement purposes", "All
+markets include overtime/shootout, unless otherwise stated", and its
+pre-game "2 Way OU" is listed under "Pre-Game Markets Including Overtime
+(and shootout)". DraftKings is not a sharp book, though, and the sharp
+anchor (`core/devig.py`) draws on Pinnacle, Matchbook and Betfair, none of
+whose rules was read (Pinnacle's help articles returned 404 that day).
+
+So only the lines that settle alike under BOTH rules are priced. Overtime is
+played only from a tied regulation score, which is an even total `2k`, and
+it adds exactly one goal. On a line `N.5` that changes the result only when
+`N = 2k`: 4.5 (2-2), 6.5 (3-3), 8.5 (4-4). On 3.5, 5.5 and 7.5 a game is
+over or under the line at the end of regulation and overtime cannot move
+it. :func:`total_line_depends_on_overtime` names the even-floor lines and
+the parser refuses them, so all three callers (runner, parlay reader,
+alt-line check) refuse them alike.
+
 WHAT THIS DOES NOT ESTABLISH
 ----------------------------
 - That the subtitle grammar is stable. A new Kalshi phrasing fails to parse
@@ -38,16 +62,20 @@ WHAT THIS DOES NOT ESTABLISH
   names a team AND a line -- two joins in one string -- and the book side is
   a fourth feed key (`team_totals`, another credit per region on every
   call). Out of scope; nothing here reads it.
-- Anything about NHL. Its unit is `goals`, which is not in the whitelist, so
-  an NHL total parses to `None` and is counted by name
-  (`dropped_unknown_total_unit`). Kalshi's rules text counts overtime goals
-  and scores a shootout as one goal to the winner; no sportsbook's house rule
-  has been read against that. Do not add `goals` to make the count go away.
+- How any sharp book settles an NHL total, or which of a book's markets
+  (overtime included or regulation only) The Odds API serves as `totals`.
+  That is why the even-floor lines are refused rather than priced. Reopening
+  them needs a sharp book's rule read, or a live comparison of the sharp
+  books' devigged Under at 6.5 against DraftKings' (a regulation-only book
+  would be several points richer there and agree at 5.5).
+- Anything about the NHL puck line. `spreads._KNOWN_UNITS` still refuses
+  `goals`; its settlement was not read.
 - That a Kalshi total and a sportsbook total settle alike in every case. The
   rules text names no overtime exclusion, which agrees with a book's full-game
   total. It differs on a postponed game: college football, NBA and men's
-  college basketball resolve "to a fair price" where a book voids, and the NFL
-  rules text read on 2026-11-12 carries no postponement clause at all.
+  college basketball resolve "to a fair price" where a book voids, NHL does
+  the same for a game not started within 48 hours, and the NFL rules text
+  read on 2026-11-12 carries no postponement clause at all.
 - That `strike_type` is `"greater"` and `cap_strike` is absent on a market
   this prices. Both were so on every captured market, and they are the
   venue's own statement that YES is above the line, but discovery does not
@@ -72,7 +100,9 @@ TOTALS_MARKET = "totals"
 #: reason: an unrecognised unit is a grammar this code has never seen, and
 #: `unrecognised_total_unit` lets a caller count it apart from a parse
 #: failure so a whole league producing zero supply is not a quiet night.
-_KNOWN_UNITS = r"runs?|points?"
+#: `goals` joined on #430 with the settlement rules read on both sides
+#: (module docstring).
+_KNOWN_UNITS = r"runs?|points?|goals?"
 
 #: `"Over 8.5 runs scored"` / `"Over 180.5 points scored"` / `"Over 44.5
 #: points"`. The trailing `scored` is optional because four leagues omit it
@@ -102,13 +132,33 @@ def parse_total_subtitle(subtitle: Optional[str]) -> Optional[float]:
     matched = _TOTAL_SUBTITLE.match(subtitle.strip())
     if not matched:
         return None
+    if total_line_depends_on_overtime(subtitle):
+        return None
     return float(matched.group("line"))
+
+
+def total_line_depends_on_overtime(subtitle: Optional[str]) -> bool:
+    """Whether a goals total sits where overtime can decide it (#430).
+
+    `"Over 6.5 goals scored"` -> True (3-3 after regulation goes over only in
+    overtime or the shootout); `"Over 5.5 goals scored"` -> False. Always
+    False for runs and points, whose overtime rule is not in question here.
+    A caller that sees `parse_total_subtitle` return None for a subtitle this
+    calls True should count it apart from a parse failure.
+    """
+    if not subtitle:
+        return False
+    matched = _TOTAL_SUBTITLE.match(subtitle.strip())
+    if not matched or not matched.group("unit").startswith("goal"):
+        return False
+    whole = float(matched.group("line")) // 1
+    return whole % 2 == 0
 
 
 def unrecognised_total_unit(subtitle: Optional[str]) -> Optional[str]:
     """The unit of a subtitle that fits the grammar but not the whitelist.
 
-    `"Over 5.5 goals scored"` -> `"goals"`. `None` when the subtitle parses
+    `"Over 9.5 corners scored"` -> `"corners"`. `None` when the subtitle parses
     fine, or when it does not fit the grammar at all.
     """
     if not subtitle:

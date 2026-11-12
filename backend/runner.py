@@ -109,6 +109,7 @@ from .kalshi.totals import (
     parse_total_subtitle,
     total_book_point,
     total_line_agrees,
+    total_line_depends_on_overtime,
     total_line_is_half_point,
     unrecognised_total_unit,
 )
@@ -216,6 +217,10 @@ class PassCounts:
     # carry. Counted apart for the same reason, and reported at zero for
     # the same reason.
     dropped_unknown_total_unit: int = 0
+    # A goals total on a line overtime can decide (4.5, 6.5, 8.5): refused
+    # because the sharp books' overtime rule is unread (#430,
+    # `kalshi/totals.py`). Counted apart so it never reads as a parse bug.
+    dropped_overtime_dependent_total: int = 0
     # A candidate the pricing engine REFUSED to price, by raising. Counted
     # rather than allowed to propagate, and counted rather than swallowed --
     # the two failure modes are opposite and both have happened here.
@@ -1539,7 +1544,9 @@ def _price_totals_event(
         parsed = parse_total_subtitle(market.yes_side)
         if parsed is None:
             unit = unrecognised_total_unit(market.yes_side)
-            if unit is not None:
+            if total_line_depends_on_overtime(market.yes_side):
+                counts.dropped_overtime_dependent_total += 1
+            elif unit is not None:
                 counts.dropped_unknown_total_unit += 1
             else:
                 counts.dropped_unresolved_outcome += 1

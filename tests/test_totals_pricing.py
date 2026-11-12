@@ -35,6 +35,7 @@ from backend.kalshi.totals import (
     parse_total_subtitle,
     total_book_point,
     total_line_agrees,
+    total_line_depends_on_overtime,
     unrecognised_total_unit,
 )
 from backend.match.linker import (
@@ -94,7 +95,8 @@ class TestTheSubtitleParser:
         assert parse_total_subtitle(None) is None
 
     def test_an_unread_unit_is_named_apart_from_a_parse_failure(self):
-        assert unrecognised_total_unit("Over 5.5 goals scored") == "goals"
+        assert unrecognised_total_unit("Over 9.5 corners scored") == "corners"
+        assert unrecognised_total_unit("Over 5.5 goals scored") is None
         assert unrecognised_total_unit("Over 8.5 runs scored") is None
         assert unrecognised_total_unit("Combined score over 8.5") is None
         assert unrecognised_total_unit(None) is None
@@ -320,7 +322,21 @@ class TestThePricingPath:
         assert counts.dropped_unresolved_outcome == 1
         assert counts.dropped_unknown_total_unit == 0
 
-    def test_goals_are_counted_as_an_unknown_unit(self, conn):
+    def test_an_unread_unit_is_counted_as_an_unknown_unit(self, conn):
+        _seed_total_rows(conn, rows=[
+            ("Over", 9.5, 1.95, "pinnacle"),
+            ("Under", 9.5, 1.95, "pinnacle"),
+        ])
+        counts = self._run(
+            conn, _total_event(strike=9.5, subtitle="Over 9.5 corners scored")
+        )
+        assert counts.fair_prices_written == 0
+        assert counts.dropped_unknown_total_unit == 1
+        assert counts.dropped_unresolved_outcome == 0
+
+    def test_an_nhl_goals_total_writes_a_fair_price(self, conn):
+        """#430: `goals` is read. Mutation observed red: drop `goals?` from
+        `_KNOWN_UNITS`."""
         _seed_total_rows(conn, rows=[
             ("Over", 5.5, 1.95, "pinnacle"),
             ("Under", 5.5, 1.95, "pinnacle"),
@@ -328,8 +344,20 @@ class TestThePricingPath:
         counts = self._run(
             conn, _total_event(strike=5.5, subtitle="Over 5.5 goals scored")
         )
+        assert counts.fair_prices_written == 2
+        assert counts.dropped_unknown_total_unit == 0
+
+    def test_an_overtime_dependent_nhl_line_is_counted_by_name(self, conn):
+        _seed_total_rows(conn, rows=[
+            ("Over", 6.5, 1.95, "pinnacle"),
+            ("Under", 6.5, 1.95, "pinnacle"),
+        ])
+        counts = self._run(
+            conn, _total_event(strike=6.5, subtitle="Over 6.5 goals scored")
+        )
         assert counts.fair_prices_written == 0
-        assert counts.dropped_unknown_total_unit == 1
+        assert counts.dropped_overtime_dependent_total == 1
+        assert counts.dropped_unknown_total_unit == 0
         assert counts.dropped_unresolved_outcome == 0
 
     def test_the_counter_reaches_the_pass_line_even_at_zero(self):
@@ -516,15 +544,48 @@ class TestYesIsTheOverOnEveryListedTotalsSeries:
                 seen.add(event["series_ticker"])
         assert seen == POINTS_SERIES
 
-    def test_an_nhl_total_is_still_refused_and_named(self):
-        """`goals` is not in the whitelist on purpose: whether a Kalshi NHL
-        total and a book's settle alike is unanswered. Mutation observed red:
-        add `goals?` to `_KNOWN_UNITS`."""
+    def test_an_nhl_total_parses_to_its_strike(self):
+        """#430: Kalshi's NHL rules and DraftKings' filed house rule both count
+        overtime and score a shootout as one goal to the winner, so `goals` is
+        read. The rule this rests on is quoted in the captured market itself.
+        Mutation observed red: drop `goals?` from `_KNOWN_UNITS`."""
         nhl = [e for e in self._doc()["events"] if e["series_ticker"] == "KXNHLTOTAL"]
         assert nhl
+        priced = refused = 0
         for market in nhl[0]["markets"]:
-            assert parse_total_subtitle(market["yes_sub_title"]) is None
-            assert unrecognised_total_unit(market["yes_sub_title"]) == "goals"
+            subtitle = market["yes_sub_title"]
+            assert unrecognised_total_unit(subtitle) is None
+            assert "shootout result will be recorded as one goal" in market[
+                "rules_secondary"
+            ], market["ticker"]
+            line = parse_total_subtitle(subtitle)
+            if int(market["floor_strike"]) % 2 == 0:
+                # 4.5, 6.5, 8.5: overtime can decide these (see below).
+                assert line is None, subtitle
+                assert total_line_depends_on_overtime(subtitle)
+                refused += 1
+            else:
+                assert line is not None, subtitle
+                assert total_line_agrees(line, market["floor_strike"])
+                assert not total_line_depends_on_overtime(subtitle)
+                priced += 1
+        assert priced and refused
+
+    def test_only_the_lines_overtime_cannot_decide_are_priced(self):
+        """A tied regulation score is an even total and overtime adds one
+        goal, so only an even-floor line (4.5 from 2-2, 6.5 from 3-3) can be
+        decided by it. The sharp books' overtime rule is unread, so those are
+        refused (#430, kalshi-platform's review). Mutation observed red:
+        make `total_line_depends_on_overtime` return False."""
+        for line, depends in [(1.5, False), (2.5, True), (3.5, False),
+                              (4.5, True), (5.5, False), (6.5, True),
+                              (7.5, False), (8.5, True)]:
+            subtitle = f"Over {line} goals scored"
+            assert total_line_depends_on_overtime(subtitle) is depends, line
+            assert (parse_total_subtitle(subtitle) is None) is depends, line
+        # Runs and points are not in question.
+        assert not total_line_depends_on_overtime("Over 6.5 runs scored")
+        assert parse_total_subtitle("Over 44.5 points") == 44.5
 
     def test_dropping_scored_did_not_loosen_anything_else(self):
         assert parse_total_subtitle("Over 44.5 points") == 44.5
@@ -532,11 +593,13 @@ class TestYesIsTheOverOnEveryListedTotalsSeries:
         assert parse_total_subtitle("Over 44.5") is None
         assert parse_total_subtitle("Over 44.5 points allowed") is None
         assert parse_total_subtitle("Dallas: Over 24.5 points") is None
-        assert unrecognised_total_unit("Over 5.5 goals") == "goals"
+        assert parse_total_subtitle("Over 5.5 goals") == 5.5
+        assert unrecognised_total_unit("Over 9.5 corners") == "corners"
         assert unrecognised_total_unit("Over 44.5 points") is None
-        # A half's total is a different contract; `^Over` keeps it out even
-        # though `KXNFL1HTOTAL` would be typed `total` by its series suffix.
-        assert parse_total_subtitle("1st Half: Over 20.5 points") is None
+        # A half's or a period's total is a different contract, and its
+        # subtitle uses the SAME grammar ("Over 3.5 points", "Over 1.5
+        # goals"), so the parser cannot keep it out. Discovery's scope check
+        # does: `TestPeriodTotalsAreKeptOutByScope`.
 
     def test_a_whole_number_line_is_refused_by_every_reader(self):
         """A book pushes on the number and Kalshi settles it NO, so the two
@@ -581,3 +644,40 @@ class TestYesIsTheOverOnEveryListedTotalsSeries:
             )
         ]
         assert names == ["Over", "Under"]
+
+
+PERIOD_TOTALS = Path(__file__).parent / "fixtures" / "events_period_totals.json"
+
+
+class TestPeriodTotalsAreKeptOutByScope:
+    """kalshi-platform, #430 review: `KXNHL1PTOTAL` says "Over 1.5 goals" and
+    `KXNFL1HTOTAL` "Over 3.5 points" -- the full-game grammar. Joined to a
+    full-game book line at the same number they would be priced as the wrong
+    contract. Only discovery's `competition_scope` check keeps them out, and
+    this pins it on captured payloads."""
+
+    def _events(self):
+        return json.loads(PERIOD_TOTALS.read_text(encoding="utf-8"))["events"]
+
+    def test_their_subtitles_parse_so_the_parser_is_not_the_guard(self):
+        for event in self._events():
+            assert any(
+                parse_total_subtitle(m["yes_sub_title"]) is not None
+                for m in event["markets"]
+            ), event["series_ticker"]
+
+    def test_discovery_classifies_none_of_them_as_game_level(self):
+        from backend.kalshi.discovery import classify_series
+
+        seen = set()
+        for event in self._events():
+            assert classify_series(event).is_game_level is False, event["series_ticker"]
+            seen.add(event["series_ticker"])
+        assert seen == {"KXNHL1PTOTAL", "KXNFL1HTOTAL", "KXNBA1HTOTAL"}
+
+    def test_the_full_game_nhl_total_is_game_level(self):
+        from backend.kalshi.discovery import classify_series
+
+        doc = json.loads(BY_SERIES.read_text(encoding="utf-8"))
+        nhl = next(e for e in doc["events"] if e["series_ticker"] == "KXNHLTOTAL")
+        assert classify_series(nhl).is_game_level is True
