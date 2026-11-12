@@ -20,6 +20,7 @@ DOCKERIGNORE = ROOT / ".dockerignore"
 AGREED = {
     "health": "python /app/scripts/fetch_live_route.py /api/health",
     "bets-summary": "python /app/scripts/fetch_live_bets_summary.py",
+    "credits-by-sport": "python /app/scripts/inspect_live_db.py credits-by-sport",
     "backfill-leg-prices-dry-run": (
         "python /app/scripts/backfill_leg_prices.py --db /data/cockpit.db --dry-run --limit 400"
     ),

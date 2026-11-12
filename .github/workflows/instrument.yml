@@ -14,7 +14,9 @@
 # listed below, and each is a fixed command: there is no free-text command
 # input, no way to pass a different script, and no way to pass extra flags.
 # An instrument that prints rows (tickers, prices, labels, dates) does not
-# belong here; it stays a laptop read. `tests/test_instrument_workflow.py`
+# belong here; it stays a laptop read. `credits-by-sport` (#401) prints odds
+# credits per budget day per sport over the last seven days: the feed's
+# spend, nothing about a bet. `tests/test_instrument_workflow.py`
 # pins every command to a script `.dockerignore` ships and to the flags below.
 #
 # `backfill-leg-prices-commit` WRITES the live database -- the five ADR 0194
@@ -48,6 +50,7 @@ on:
           - choose-one
           - health
           - bets-summary
+          - credits-by-sport
           - backfill-leg-prices-dry-run
           - backfill-leg-prices-commit
           - backfill-venue-combo-legs-dry-run
@@ -103,6 +106,8 @@ jobs:
               cmd="python /app/scripts/fetch_live_route.py /api/health" ;;
             bets-summary)
               cmd="python /app/scripts/fetch_live_bets_summary.py" ;;
+            credits-by-sport)
+              cmd="python /app/scripts/inspect_live_db.py credits-by-sport" ;;
             backfill-leg-prices-dry-run)
               cmd="python /app/scripts/backfill_leg_prices.py --db /data/cockpit.db --dry-run --limit 400" ;;
             backfill-leg-prices-commit)
