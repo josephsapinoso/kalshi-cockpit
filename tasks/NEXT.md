@@ -139,6 +139,24 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-11-12 (hundred-and-eighth session) — totals in four leagues deployed (#418); NHL totals priced where overtime cannot decide them (#430); totals refuse any shape but "YES above the line" (#431); college basketball's first slates read (#401, partial); live and demo on `993b714f`
+
+- **Deployed #418 first** (live 43319898316, demo 43320171527, both on `645e8fdb`). Live `/api/parlays` then carried six `KXNCAAMBTOTAL` legs on 6 of 9 cards: a league whose totals had parsed to `None`. #407 closed (all 11 children done).
+- **#430 closed: NHL totals are priced, but only on 1.5, 3.5, 5.5, 7.5 and 9.5.** Kalshi's rule and DraftKings' Massachusetts-filed house rule agree: overtime counts and a shootout adds one goal. DraftKings is not sharp, though, and the sharp books' rule is unread (Pinnacle's help pages 404). A tied regulation score is even and overtime adds one goal, so only an even-floor line (4.5, 6.5, 8.5) can be decided by overtime. Those are refused by name (`total_line_depends_on_overtime`, `dropped_overtime_dependent_total`). kalshi-platform: MERGE WITH FIXES, applied. **Period and half totals use the full-game grammar** ("Over 1.5 goals", "Over 3.5 points"). Only discovery's scope check keeps them out, and that check is now pinned on captured events (`tests/fixtures/events_period_totals.json`). Reopening the even lines needs a sharp book's rule, or a live comparison of the sharp books' Under at 6.5 against DraftKings'. Verified on live after the deploy: Detroit–Florida Over 5.5 is on the Three-totals card.
+- **#431 closed.** `DiscoveredMarket` carries `strike_type`, `cap_strike` and `cap_strike_present`. The totals arm refuses anything but `"greater"` with no cap (`dropped_total_not_above_line`). `cap_strike` has never been captured, so it is parsed defensively: `build_market` also serves the armed quote refresh. The alt-line check reads `kalshi_markets` and does not check either field.
+- **#401 partly read** (`docs/measurements/2026-11-12-first-college-basketball-slates.md`, measurement-skeptic PASS WITH FIXES, all ten applied). The heaviest credits day was Saturday 11-07 at 723 of 800. NCAAB had 61 of 62 book fixtures linked with eight new aliases. Skew is exactly 3 h on every link. No WNBA credits since 11-05. **Still owed: the sweep-log refusal read**, which is a laptop read because it prints rows, and the laptop's flyctl login has expired. #401 stays open for it, and #360 closes on it.
+- `instrument.yml` gained `credits-by-sport` (counts only; `d08155d5`).
+- `capture_team_names.py` buckets the linker's not-carried wording; it had reported 18 such games as "other".
+- **#197 closed.** Its last children were #430 and #431. Joe's next request for more legs opens a new story.
+- Opened #432 (below), #433 and #434.
+
+### Still open (adds to the list below; #430 and #431 above are closed)
+
+1. Question for Joe: your tailed-parlays page ends with four desk suggestions (A-D) — which do you want built? — #432
+2. #401 — the sweep-log / credits-day refusal read for 11-02..11-12; needs `fly auth login` on the laptop, or a counts-only refusal instrument in `instrument.yml`.
+3. #433 — board.py flags a ticket whose named date has passed (lane-builder).
+4. #434 — linker: should an alias be exclusive (Tennessee St. at Tennessee cannot link).
+
 ## 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `850a0ff6`
 
 - **This entry was written the next morning by a different session.** Joe shut the PC down before the session wrote its handoff. Everything here is rebuilt from `git log caadf719..fca0477f`, the tickets and the workflow run logs, not from the session itself, so its reasoning and any lesson it meant to record are missing. `tasks/lessons.md` has no entry for it.
@@ -651,6 +669,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-11-12 (hundred-and-eighth session) — totals in four leagues deployed (#418); NHL totals priced where overtime cannot decide them (#430); totals refuse any shape but "YES above the line" (#431); college basketball's first slates read (#401, partial); live and demo on `993b714f`
 - 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `850a0ff6`
 - 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`
 - 2026-10-30 (hundred-and-fifth session) — #361 read: busiest day 546, daily cap 700 → 800 on Joe's word; men's college basketball in scope (#360); live and demo on `4afdf974`

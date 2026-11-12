@@ -16,6 +16,15 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-11-12 - Loosening a parser can remove a guard nobody knew it was providing
+
+From the hundred-and-eighth session (#418, then kalshi-platform's #430 review).
+
+- **#418 made `scored` optional in the totals grammar so four leagues would parse.** Before that change, the word was the only thing that told a full-game NHL total ("Over 5.5 goals scored") from a period total ("Over 1.5 goals"). Nobody had written that down. A test asserted that `^Over` kept a "1st Half: Over 20.5 points" out. That subtitle was invented: on the wire, half and period totals say "Over 3.5 points" with no prefix, and they parse fine. What actually keeps them out is discovery's `competition_scope` check, and no capture pinned it.
+- **The rule:**
+  - Before relaxing a parser, list what the stricter form refused, using captured payloads of the neighbouring series (period, half, team-total, alternate). Pin whichever check really does the refusing.
+  - A negative example in a parser test must come from a capture, not be typed. A string you made up proves only that the string you made up fails.
+
 ## 2026-10-30 - A lane that rebuilds a layout can drop a render and keep its import; every lane test stays green
 
 From the hundred-and-sixth session (UI town hall, #407).
