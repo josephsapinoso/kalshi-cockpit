@@ -776,7 +776,7 @@ def _has_range(block: Any) -> bool:
     )
 
 
-def count_ranges(record: dict) -> int:
+def count_ranges(record: dict, population: str = "all") -> int:
     """#413: how many plausible ranges the Your bets page is served.
 
     About 19 in 20 ranges hold the result IF the prices were fair, so with
@@ -785,7 +785,13 @@ def count_ranges(record: dict) -> int:
     overall line and price buckets, each pick-source line, each league/kind
     leg cell and each by-shape cell. `too_few` blocks carry none and are
     not counted.
+
+    `population` (#423): the page shows the leg-count rows, the same-game
+    split and the by-leg-kind block for ONE population at a time, "all" or
+    "off_desk". The figure counts what the page shows for the one named, so
+    it never adds the two views together.
     """
+    off = population == "off_desk"
     blocks: list[Any] = []
     for summary in (record.get("summary") or {}).values():
         expected = summary.get("expected")
@@ -796,11 +802,16 @@ def count_ranges(record: dict) -> int:
         blocks.extend(b.get("expected") for b in per_kind)
         for b in per_kind:
             blocks.extend(n.get("expected") for n in b.get("by_name") or [])
-    for league in (record.get("by_leg_kind") or {}).get("leagues") or []:
+    leg_kind_block = record.get("by_leg_kind") or {}
+    if off:
+        leg_kind_block = leg_kind_block.get("off_desk") or {}
+    for league in leg_kind_block.get("leagues") or []:
         blocks.extend(k.get("expected") for k in league["kinds"])
     shape = record.get("by_shape") or {}
     blocks.extend(shape.get("price_bands", []))
-    blocks.extend(shape.get("leg_counts", []))
+    legs_view = (shape.get("off_desk") or {}) if off else shape
+    blocks.extend(legs_view.get("leg_counts", []))
+    blocks.extend((legs_view.get("same_game_split") or {}).get("cells", []))
     total = 0
     for block in blocks:
         total += 1 if _has_range(block) else 0
@@ -966,7 +977,9 @@ def _median(values: list[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2
 
 
-def by_leg_kind_summary(conn: sqlite3.Connection) -> dict[str, Any]:
+def by_leg_kind_summary(
+    conn: sqlite3.Connection, *, off_desk_only: bool = False
+) -> dict[str, Any]:
     """Per league and kind: wins at the price paid, and the close beaten or not.
 
     Reads `parlay_position_legs`, and since v69 (ADR 0197) the legs of the
@@ -999,15 +1012,24 @@ def by_leg_kind_summary(conn: sqlite3.Connection) -> dict[str, Any]:
 
     No hit rate, no average, no trend, no ranking: leagues are alphabetical
     (`Unknown` last) and kinds are `LEG_KINDS` order, whatever the results.
+
+    `off_desk_only` (#423) keeps only the second source -- the legs of the
+    combinations bought off the desk, those with no `parlay_positions` row.
+    It changes the POPULATION and nothing else: the same rule, the same
+    order, the same cells.
     """
-    rows = conn.execute(
-        "SELECT ticker, event_ticker, league, side, outcome, "
-        "       ask_at_purchase_tenths, close_yes_bid_tenths, "
-        "       close_yes_ask_tenths "
-        "FROM parlay_position_legs "
-        "WHERE ticker IS NOT NULL AND outcome IN ('won', 'lost')"
-    ).fetchall()
-    rows = [dict(r) for r in rows]
+    rows: list[dict[str, Any]] = []
+    if not off_desk_only:
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT ticker, event_ticker, league, side, outcome, "
+                "       ask_at_purchase_tenths, close_yes_bid_tenths, "
+                "       close_yes_ask_tenths "
+                "FROM parlay_position_legs "
+                "WHERE ticker IS NOT NULL AND outcome IN ('won', 'lost')"
+            ).fetchall()
+        ]
     for r in conn.execute(
         "SELECT l.ticker, l.event_ticker, l.league, l.side, "
         "       m.result AS market_result, l.venue_result, "
@@ -1106,6 +1128,79 @@ def _sum_ints(values: list[int]) -> int:
     return total
 
 
+def _leg_game_key(event_ticker: Any, market_ticker: Any) -> Optional[str]:
+    """One leg's game, or None. The stored event ticker first, else the one
+    the market ticker's own shape gives (`hedge.event_ticker_for`); None when
+    neither reads, so the combination is unclassified, never guessed."""
+    from . import hedge
+
+    event = event_ticker or hedge.event_ticker_for(market_ticker)
+    return hedge.same_game_key(event)
+
+
+def _shape_legs(
+    conn: sqlite3.Connection, tickers: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Per combination ticker: `game_keys` (one per leg: the newest recorded
+    position's legs, else the off-desk legs) and `on_desk` (a
+    `parlay_positions` row exists for the ticker).
+
+    A ticker with a position but no recorded legs is `on_desk` with an empty
+    `game_keys`; it is never filled from the off-desk table, which by
+    construction holds only tickers with no position.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    # Chunked at 500 like `pick_sources_for`: the whole settled record is
+    # read here, and an IN (...) list has a hard parameter ceiling.
+    for start in range(0, len(tickers), 500):
+        chunk = tickers[start:start + 500]
+        marks = ",".join("?" for _ in chunk)
+        for r in conn.execute(
+            "SELECT combo_ticker AS combo FROM parlay_positions "
+            f"WHERE combo_ticker IN ({marks})",
+            chunk,
+        ).fetchall():
+            out[r["combo"]] = {"game_keys": [], "on_desk": True}
+        # Ordered by position id, so the newest position's legs win.
+        per_position: dict[str, tuple[int, list[Any]]] = {}
+        for r in conn.execute(
+            "SELECT p.combo_ticker AS combo, p.id AS pid, l.ticker AS ticker, "
+            "l.event_ticker AS event_ticker "
+            "FROM parlay_positions p "
+            "JOIN parlay_position_legs l ON l.position_id = p.id "
+            f"WHERE p.combo_ticker IN ({marks}) "
+            "ORDER BY p.id, l.leg_index",
+            chunk,
+        ).fetchall():
+            held = per_position.get(r["combo"])
+            if held is None or held[0] != r["pid"]:
+                held = (r["pid"], [])
+                per_position[r["combo"]] = held
+            held[1].append(r)
+        for combo, (_pid, legs) in per_position.items():
+            out[combo]["game_keys"] = [
+                _leg_game_key(r["event_ticker"], r["ticker"]) for r in legs
+            ]
+        off = [t for t in chunk if t not in out]
+        if not off:
+            continue
+        marks = ",".join("?" for _ in off)
+        for r in conn.execute(
+            "SELECT combo_ticker AS combo, ticker, event_ticker "
+            "FROM venue_combo_legs "
+            f"WHERE combo_ticker IN ({marks}) "
+            "ORDER BY combo_ticker, leg_index",
+            off,
+        ).fetchall():
+            entry = out.setdefault(
+                r["combo"], {"game_keys": [], "on_desk": False}
+            )
+            entry["game_keys"].append(
+                _leg_game_key(r["event_ticker"], r["ticker"])
+            )
+    return out
+
+
 def by_shape_summary(
     conn: sqlite3.Connection,
     shape_rows: list[tuple[str, int, bool, int, int]],
@@ -1125,29 +1220,27 @@ def by_shape_summary(
     * `leg_counts`: one row per EXACT leg count, ascending, from the newest
       recorded position for the combination's ticker. No bins.
     * `no_leg_list`: combinations with no recorded legs, counted, never
-      dropped.
+      dropped. Since #423 a combination bought off the desk has its legs from
+      `venue_combo_legs`, so it is counted by leg count where they are read.
+    * `same_game_split` (#423): `cells` in the fixed order same_game then
+      cross_game -- a combination is same_game when every leg's
+      `hedge.same_game_key` is one non-None key, cross_game when its legs
+      span more than one -- each with `expected_block`'s n / won / expected /
+      too_few plus staked and net at the price paid for the WHOLE
+      combination; `unclassified` counts those where any leg's key is None.
+    * `off_desk` (#423): `leg_counts`, `same_game_split` and `no_leg_list`
+      again, over only the combinations with no `parlay_positions` row. The
+      keys above keep meaning "all".
 
     Lifetime settled record only, no day window. Descriptive: no rate, no
     return figure, nothing sorted by a result. Lives apart from `summary`
     because that block's keys may not name a net (#287).
     """
     tickers = sorted({r[0] for r in shape_rows})
-    leg_count: dict[str, int] = {}
-    # Chunked at 500 like `pick_sources_for`: the whole settled record is
-    # read here, and an IN (...) list has a hard parameter ceiling.
-    for start in range(0, len(tickers), 500):
-        chunk = tickers[start:start + 500]
-        marks = ",".join("?" for _ in chunk)
-        # Ordered by position id, so the newest position's count wins.
-        for r in conn.execute(
-            "SELECT p.combo_ticker AS combo, COUNT(l.id) AS n "
-            "FROM parlay_positions p "
-            "JOIN parlay_position_legs l ON l.position_id = p.id "
-            f"WHERE p.combo_ticker IN ({marks}) "
-            "GROUP BY p.id ORDER BY p.id",
-            chunk,
-        ).fetchall():
-            leg_count[r["combo"]] = r["n"]
+    shape_legs = _shape_legs(conn, tickers)
+    leg_count: dict[str, int] = {
+        t: len(v["game_keys"]) for t, v in shape_legs.items()
+    }
 
     Row = tuple[str, int, bool, int, int]
 
@@ -1168,14 +1261,54 @@ def by_shape_summary(
         for low, high, label in EXPECTED_BUCKETS
     ]
     unbanded = [r for r in shape_rows if not banded(r[1])]
-    with_legs = [r for r in shape_rows if leg_count.get(r[0], 0) > 0]
-    without = [r for r in shape_rows if leg_count.get(r[0], 0) <= 0]
-    leg_counts = [
-        {
-            "legs": k,
-            **cell([r for r in with_legs if leg_count[r[0]] == k]),
+
+    def leg_views(rows: list[Row]) -> dict[str, Any]:
+        """Leg-count rows, the same-game split and the no-leg-list count over
+        ONE population. The rule and the order are the same for every
+        population (#423); only `rows` differs."""
+        with_legs = [r for r in rows if leg_count.get(r[0], 0) > 0]
+        without = [r for r in rows if leg_count.get(r[0], 0) <= 0]
+        leg_counts = [
+            {
+                "legs": k,
+                **cell([r for r in with_legs if leg_count[r[0]] == k]),
+            }
+            for k in sorted({leg_count[r[0]] for r in with_legs})
+        ]
+        same: list[Row] = []
+        cross: list[Row] = []
+        unclassified: list[Row] = []
+        for r in with_legs:
+            keys = shape_legs[r[0]]["game_keys"]
+            if any(k is None for k in keys):
+                unclassified.append(r)
+            elif len(set(keys)) == 1:
+                same.append(r)
+            else:
+                cross.append(r)
+        return {
+            "leg_counts": leg_counts,
+            # Fixed order: same_game, then cross_game, whatever happened.
+            "same_game_split": {
+                "cells": [
+                    {"split": "same_game", **cell(same)},
+                    {"split": "cross_game", **cell(cross)},
+                ],
+                "unclassified": {
+                    "n": len(unclassified),
+                    "staked_tenths": _sum_ints([r[3] for r in unclassified]),
+                    "net_tenths": _sum_ints([r[4] for r in unclassified]),
+                },
+            },
+            "no_leg_list": {
+                "n": len(without),
+                "staked_tenths": _sum_ints([r[3] for r in without]),
+                "net_tenths": _sum_ints([r[4] for r in without]),
+            },
         }
-        for k in sorted({leg_count[r[0]] for r in with_legs})
+
+    off_desk_rows = [
+        r for r in shape_rows if not shape_legs.get(r[0], {}).get("on_desk", False)
     ]
     return {
         "price_bands": price_bands,
@@ -1184,12 +1317,10 @@ def by_shape_summary(
             "staked_tenths": _sum_ints([r[3] for r in unbanded]),
             "net_tenths": _sum_ints([r[4] for r in unbanded]),
         },
-        "leg_counts": leg_counts,
-        "no_leg_list": {
-            "n": len(without),
-            "staked_tenths": _sum_ints([r[3] for r in without]),
-            "net_tenths": _sum_ints([r[4] for r in without]),
-        },
+        **leg_views(shape_rows),
+        # The same three views over the combinations bought off the desk
+        # only (no `parlay_positions` row for the ticker).
+        "off_desk": leg_views(off_desk_rows),
         "uncomputable": uncomputable,
         "staked_tenths": _sum_ints([r[3] for r in shape_rows]),
         "net_tenths": _sum_ints([r[4] for r in shape_rows]),
@@ -1511,6 +1642,8 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     # Absent, not a block of zeros, when no leg has settled (as `summary` is).
     by_leg_kind = by_leg_kind_summary(conn)
     if by_leg_kind["leagues"]:
+        # #423: the same block over the combinations bought off the desk.
+        by_leg_kind["off_desk"] = by_leg_kind_summary(conn, off_desk_only=True)
         record["by_leg_kind"] = by_leg_kind
     # v63: what the chips need, for the settled window AND every open
     # recorded combination (the Open section above the settled list).
@@ -1519,6 +1652,8 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
     )
     # #413: the page prints how many ranges it shows; the server counts them.
     record["range_count"] = count_ranges(record)
+    # #423: the figure for the page with the off-desk toggle on.
+    record["range_count_off_desk"] = count_ranges(record, "off_desk")
     return record
 
 

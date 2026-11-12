@@ -198,6 +198,29 @@ export type BetsSection = {
   chance_carried: number;
 };
 
+/**
+ * #423: which combinations the leg-count rows, the same-game split and the
+ * by-leg-kind block are read over. `off_desk` is the combinations with no
+ * recorded position on the desk (bought in the Kalshi app). It changes the
+ * population only, never the order or the rule.
+ */
+export type BetsPopulation = "all" | "off_desk";
+
+/** One cell of the same-game split: `expected_block`'s figures plus the
+ *  staked and net sums, at the price paid for the whole combination. */
+export type SameGameCell = ExpectedBlock & {
+  split: "same_game" | "cross_game";
+  staked_tenths: number;
+  net_tenths: number;
+};
+
+/** Cells arrive in a FIXED order (same_game, then cross_game). `unclassified`
+ *  counts combinations with a leg whose game cannot be read. */
+export type SameGameSplit = {
+  cells: SameGameCell[];
+  unclassified: { n: number; staked_tenths: number; net_tenths: number };
+};
+
 export type BetsRecord = {
   bets: SettledBet[];
   total: number;

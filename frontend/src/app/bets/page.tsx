@@ -6,7 +6,7 @@ import NotTonight from "@/components/NotTonight";
 import RecordChart from "@/components/RecordChart";
 import OpenPositions from "@/components/OpenPositions";
 import Term from "@/components/Term";
-import type { BetsKindSummary } from "@/lib/types/bets";
+import type { BetsKindSummary, BetsPopulation } from "@/lib/types/bets";
 import RecordParlay from "@/components/RecordParlay";
 import HedgePositions from "@/components/HedgePositions";
 import PageTitle from "@/components/PageTitle";
@@ -82,7 +82,15 @@ function openLabel(
   return `Open combinations: ${recorded} recorded, ${notYetRecorded} at Kalshi not yet recorded. Singles you hold at Kalshi aren't shown here.`;
 }
 
-export default async function BetsPage() {
+export default async function BetsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ population?: string | string[] }>;
+}) {
+  // #423: two states, chosen by the address so it survives a reload. Anything
+  // but the one named value is "all".
+  const { population: asked } = await searchParams;
+  const population: BetsPopulation = asked === "off_desk" ? "off_desk" : "all";
   let record;
   try {
     record = await fetchBets();
@@ -163,7 +171,7 @@ export default async function BetsPage() {
           {NOTHING_SETTLED}
         </p>
       ) : (
-        <RecordStrip record={record} />
+        <RecordStrip record={record} population={population} />
       )}
 
       {/*
@@ -339,6 +347,7 @@ export default async function BetsPage() {
               section={section}
               block={record.sections[section.kind]}
               record={record}
+              population={population}
             />
           ))}
           {record.returned < record.total && (
@@ -381,7 +390,13 @@ export default async function BetsPage() {
  * server's FIXED order and are never sorted by an outcome (ADR 0193). The
  * payload serves no net per source, so none is printed -- absent, not zero.
  */
-function RecordStrip({ record }: { record: BetsRecord }) {
+function RecordStrip({
+  record,
+  population,
+}: {
+  record: BetsRecord;
+  population: BetsPopulation;
+}) {
   const kinds = SECTIONS.map((section) => ({
     section,
     summary: record.summary?.[section.kind],
@@ -399,8 +414,12 @@ function RecordStrip({ record }: { record: BetsRecord }) {
   }
   const singlesSettled = record.summary?.single?.computable ?? 0;
   const combosSettled = record.summary?.combo?.computable ?? 0;
+  // #423: the count is for the page as shown, so the toggle's view has its own.
   const rangeCount =
-    (record as BetsRecord & { range_count?: number }).range_count ?? 0;
+    population === "off_desk"
+      ? ((record as BetsRecord & { range_count_off_desk?: number })
+          .range_count_off_desk ?? 0)
+      : ((record as BetsRecord & { range_count?: number }).range_count ?? 0);
   const only = withExpected.length === 1 ? withExpected[0].summary?.expected : null;
   const rangeWords =
     withExpected.length === 0
@@ -550,10 +569,12 @@ function BetSection({
   section,
   block,
   record,
+  population,
 }: {
   section: (typeof SECTIONS)[number];
   block: BetsSection;
   record: BetsRecord;
+  population: BetsPopulation;
 }) {
   const anyShown = record.bets.some((bet) => bet.kind === section.kind);
   return (
@@ -593,12 +614,16 @@ function BetSection({
         summary={record.summary?.[section.kind]}
       />
       <BySource kind={section.kind} blocks={record.by_source?.[section.kind]} />
-      {section.kind === "combo" && <ShapeStrip record={record} />}
+      {section.kind === "combo" && <PopulationToggle population={population} />}
+      {section.kind === "combo" && (
+        <ShapeStrip record={record} population={population} />
+      )}
       {section.kind === "combo" && (
         <ByLegKindBlock
           data={
             (record as BetsRecord & { by_leg_kind?: ByLegKind }).by_leg_kind
           }
+          population={population}
         />
       )}
       {/* #161: how many of this kind carry the desk's chance at the moment
@@ -863,14 +888,70 @@ type LegKindBlock = {
 type ByLegKind = {
   kind_order: string[];
   leagues: { league: string; kinds: LegKindBlock[] }[];
+  /** #423: the same block over the combinations bought off the desk. */
+  off_desk?: {
+    kind_order: string[];
+    leagues: { league: string; kinds: LegKindBlock[] }[];
+  };
 };
+
+/**
+ * #423: the one two-state switch for the leg-count rows, the same-game split
+ * and the by-leg-kind block. Plain links (like `WindowPicker`), so the choice
+ * is in the address. It changes WHICH combinations are read; the rows, their
+ * order and the wording are the same in both states, and neither state is
+ * marked as better than the other.
+ */
+function PopulationToggle({ population }: { population: BetsPopulation }) {
+  const choices: { key: BetsPopulation; label: string; href: string }[] = [
+    { key: "all", label: "All combinations", href: "/bets" },
+    {
+      key: "off_desk",
+      label: "Bought off the desk",
+      href: "/bets?population=off_desk",
+    },
+  ];
+  return (
+    <nav aria-label="Which combinations" className="mt-2 max-w-[65ch] text-xs">
+      <div className="grid grid-cols-2 gap-1 rounded-lg border border-border p-1">
+        {choices.map((choice) => (
+          <Link
+            key={choice.key}
+            href={choice.href}
+            prefetch={false}
+            aria-current={choice.key === population ? "page" : undefined}
+            className={`flex min-h-11 items-center justify-center rounded-md px-1 text-center leading-tight ${
+              choice.key === population
+                ? "bg-accent-soft font-semibold text-foreground"
+                : "text-muted"
+            }`}
+          >
+            {choice.label}
+          </Link>
+        ))}
+      </div>
+      <p className="mt-1 text-muted">
+        {population === "off_desk"
+          ? "Showing only combinations you bought in the Kalshi app without pricing them here: the leg counts, same-game or cross-game, and each leg below."
+          : "Showing every settled combination: the leg counts, same-game or cross-game, and each leg below."}
+      </p>
+    </nav>
+  );
+}
 
 function signedCents(value: number | null): string {
   if (value === null) return "not recorded";
   return `${value < 0 ? "-" : "+"}${Math.abs(value).toFixed(1)}c`;
 }
 
-function ByLegKindBlock({ data }: { data: ByLegKind | undefined }) {
+function ByLegKindBlock({
+  data: all,
+  population,
+}: {
+  data: ByLegKind | undefined;
+  population: BetsPopulation;
+}) {
+  const data = population === "off_desk" ? all?.off_desk : all;
   if (!data || data.leagues.length === 0) return null;
   return (
     <details className="mt-1 max-w-[65ch] text-xs text-muted">
