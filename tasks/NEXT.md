@@ -139,7 +139,7 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
-## 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `ed7f420b`
+## 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `02746220`
 
 - **This entry was written the next morning by a different session.** Joe shut the PC down before the session wrote its handoff. Everything here is rebuilt from `git log caadf719..fca0477f`, the tickets and the workflow run logs, not from the session itself, so its reasoning and any lesson it meant to record are missing. `tasks/lessons.md` has no entry for it.
 - **What it was.** Story **#419** (under #320), on Joe's approval of a 2026-11-11 plan: he tails parlays bought in the Kalshi app, and the record could not say what any of them was made of.
@@ -156,12 +156,14 @@ the channel diagnostic (A17.6/A17.11).
 - **#428 fixed 2026-11-12 and deployed.** Every write in `capture_legs`, `capture_results` and the script's price pass now rolls back on `sqlite3.OperationalError`, counts it under `write_errors` and carries on; the unwritten row stays queued. Four tests in `TestALockedDatabaseDoesNotEndThePass` hold a real write lock from a second connection, and each fails on the pre-fix code with the live traceback's error. No retry was added, and which writer held the lock on live is still unknown. Live deploy 43273999656 and demo deploy 43274243708; both `/api/health` read `ed7f420b`, and the live recorder wrote again after the restart.
 - **2026-11-12: `next` 16.3.8 -> 16.4.1 (`3c73cd32`), live and demo.** Dependabot alerts #22-#24 (two critical unauthenticated RCEs, one high) had been open since 2026-10-31; the session-start alert read was not run on 11-11. CI 43267762502 green; demo deploy 43268998247; live deploy 43270524084 on Joe's word (the first attempt was refused by the auto-mode classifier). Live `/api/health` reads `eb000853`, the recorder wrote again about four minutes after the restart, and the alert query returns zero open. Not done: reading the `next` version out of the running container (ADR 0117); the image runs `npm ci` against a lockfile that pins 16.4.1. #429 closed.
 - **Worktrees removed 2026-11-12** on Joe's word: ten merged lanes and their branches, plus one empty leftover folder. `git worktree list` shows main only.
+- **#425 closed 2026-11-12, and with it story #419.** The winning off-desk tickets re-read with their legs, by `sharp-bettor`, on a private page: https://claude.ai/artifact/AEr4CerEeKMioVkJ5BewNb (owner-only; no record number is repeated here). Its arithmetic was checked against the record before publishing. It ends with four suggestions for Joe (A-D on the page); none is a ticket yet because he has not read it.
+  - To make the page possible, each combination row on `/api/bets` now carries `on_desk` (`02746220`): the off-desk views were aggregates only, and every stand-in built from the other row fields missed the backend's own off-desk count. Three tests in `TestEachRowSaysWhetherTheDeskHoldsIt`. CI 43274976489 green; live deploy 43284713492 on Joe's word, demo 43285017843; both read `02746220`.
+  - The backfill's before and after, for #419's Done-when (table counts, from #421): combinations with venue legs 0 to 643 of 886 settled; venue legs 0 to 8,068; legs with an ask at purchase 0 to 6,671; results unread 401; refused 0.
 
 ### Still open (adds to the list below)
 
-1. #425 — the winning off-desk tickets re-read with their legs (private page); the last open task of #419.
-2. #416 — signal_test.py still carries the 713 floor; Amendment 3 made it 861 (8 fixtures to re-anchor).
-3. #418 — totals: YES-is-Over is assumed in runner.py, never checked against a capture.
+1. #416 — signal_test.py still carries the 713 floor; Amendment 3 made it 861 (8 fixtures to re-anchor).
+2. #418 — totals: YES-is-Over is assumed in runner.py, never checked against a capture.
 
 ## 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`
 
@@ -642,7 +644,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
-- 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `ed7f420b`
+- 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `02746220`
 - 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`
 - 2026-10-30 (hundred-and-fifth session) — #361 read: busiest day 546, daily cap 700 → 800 on Joe's word; men's college basketball in scope (#360); live and demo on `4afdf974`
 - 2026-10-25 (hundred-and-fourth session) — queue date-gated, nothing executed; #302 and #197 empty by finding; live and demo on `c2350d6c`
