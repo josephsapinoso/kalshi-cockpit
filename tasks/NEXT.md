@@ -174,13 +174,12 @@ the channel diagnostic (A17.6/A17.11).
   - there is no Challenger key;
   - 27 of 200 of Joe's combos carried a Challenger leg;
   - most readings will be soft-book.
-- Question for Joe: tennis Challenger legs can never get a desk reading — accept that, or price a second odds source? — #447
+- **#447 answered (A), closed:** Challenger legs stay unpriced and say why; no second odds source. Recorded in #3's Decisions so far.
 
 ### Still open (adds to the list below; #445 and #446 are closed)
 
-1. #447 — Joe: Challenger legs, accept or price a second source.
-2. #448 — 2027-01-18: the first Australian Open tennis check on live (the November one is done; this is the second look, on a Slam).
-3. #347 — the dry engine's no-op work and dead routes (partner: leads the next session if the frontier stays thin).
+1. #448 — 2027-01-18: the first Australian Open tennis check on live (the November one is done; this is the second look, on a Slam).
+2. #347 — the dry engine's no-op work and dead routes (partner: leads the next session if the frontier stays thin).
 
 ## 2026-11-13 (hundred-and-twelfth session) — laptop: Joe's (A) to #442 done; the tennis odds are captured (#439); a late-added book proven fresh (#436 closed); refusal read (#401 and #360 closed); Dependabot clean
 
