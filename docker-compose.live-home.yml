@@ -1,0 +1,54 @@
+# LIVE on the home desktop (#451, epic #449). DORMANT until cutover day.
+#
+#   GIT_SHA=$(git rev-parse HEAD) docker compose -f docker-compose.live-home.yml up -d --build
+#
+# Do NOT start this while Fly's recorder runs: two recorders buy odds twice,
+# push twice and split the record into two databases (the two-writers guard is
+# #459). Cutover order is in Joe's migration plan, Phase 3.
+#
+# This is the whole desk, exactly as Fly's machine runs it: the same image and
+# the same entrypoint with SERVE_ONLY=0, so docker/entrypoint.sh starts the API,
+# the frontend and the chain runner (scripts/run_loop.py), and migrates the
+# database first. It is NOT the rehearsal file (docker-compose.home.yml, which
+# serves a copy and can spend nothing); tests/test_live_home_compose.py pins
+# the difference.
+#
+# Settings come from two files, in this order:
+#   deploy/home/live.env.example  every non-secret setting, GENERATED from
+#                                 fly.live.toml [env] (scripts/home_env_from_fly.py,
+#                                 #450), so home cannot drift from Fly;
+#   .env.live-home                the secrets only (Kalshi key, odds key,
+#                                 Anthropic, Discord, login token). Gitignored by
+#                                 `.env.*`; readable only by Joe's account (#455).
+#
+# Port bound to loopback; the phone reaches it via `tailscale serve`, never
+# `tailscale funnel` (public internet). The database is a named volume inside
+# WSL2's Linux disk -- native speed for SQLite, and a different volume from the
+# rehearsal's so the two can never share a file.
+
+services:
+  cockpit:
+    build:
+      context: .
+      args:
+        # Required: without it /api/health reports git_sha null and nothing
+        # can verify which commit is live (the deploy-ships-the-working-tree
+        # lesson). `:?` makes compose refuse to build without it.
+        GIT_SHA: ${GIT_SHA:?set GIT_SHA=$(git rev-parse HEAD)}
+    image: kalshi-cockpit:live-home
+    env_file:
+      - deploy/home/live.env.example
+      - .env.live-home
+    environment:
+      # The ONLY override. INSTANCE_MODE, DB_PATH and PORT come from the
+      # generated file like every other setting; restating them here would let
+      # a change to fly.live.toml be silently overridden at home.
+      SERVE_ONLY: "0"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - cockpit_live_data:/data
+    restart: unless-stopped
+
+volumes:
+  cockpit_live_data:
