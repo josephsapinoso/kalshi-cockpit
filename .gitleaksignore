@@ -1,0 +1,4 @@
+# Known false positive in history, ignored by exact fingerprint (commit:file:rule:line).
+# A dummy base64 value ("not-a-key") in a test that checks the entrypoint refuses a key;
+# replaced by a plain non-key string in the following commit.
+074333fb045ad602f3aeed453660e43b6bbb037f:tests/test_serve_only_rehearsal_holds_no_key.py:generic-api-key:63

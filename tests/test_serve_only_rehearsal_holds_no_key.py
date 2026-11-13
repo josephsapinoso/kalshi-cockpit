@@ -60,7 +60,8 @@ class TestServeOnlyRefusesAnyKalshiCredential:
             tmp_path,
             SERVE_ONLY="1",
             KALSHI_PUBLIC_READ_ONLY="true",
-            KALSHI_PRIVATE_KEY_B64="bm90LWEta2V5",
+            # Any non-empty value: the entrypoint refuses on presence alone.
+            KALSHI_PRIVATE_KEY_B64="present",  # gitleaks:allow
         )
         assert done.returncode == 1
         assert "KALSHI_PRIVATE_KEY_B64 is set. Refusing." in done.stdout
