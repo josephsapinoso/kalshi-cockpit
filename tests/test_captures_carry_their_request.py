@@ -463,6 +463,24 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
         endpoint_in=(),
         how="Public unauthenticated /events capture of one tennis match event with nested markets, written through scripts/capture_envelope.write_capture; the `request` block holds method, endpoint and params.",
     ),
+    "odds_tennis_atp_finals_h2h.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("sport", "bookmakers", "markets"),
+        endpoint_in=(),
+        how="Odds API /v4/sports/{key}/odds for one active tennis tournament, h2h, the ten named bookmakers, written through scripts/capture_envelope.write_capture by scripts/capture_tennis_odds_fixture.py (#439); the credential is omitted.",
+    ),
+    "odds_tennis_wta_finals_h2h.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("sport", "bookmakers", "markets"),
+        endpoint_in=(),
+        how="Odds API /v4/sports/{key}/odds for one active tennis tournament, h2h, the ten named bookmakers, written through scripts/capture_envelope.write_capture by scripts/capture_tennis_odds_fixture.py (#439); the credential is omitted.",
+    ),
+    "odds_tennis_sports.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("all",),
+        endpoint_in=(),
+        how="Odds API /v4/sports?all=true (free) filtered client-side to keys starting 'tennis', written by scripts/capture_tennis_odds_fixture.py (#439).",
+    ),
     "kalshi_tennis_mve_collection.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("collection_ticker",),
@@ -838,6 +856,11 @@ UPGRADED_WRITERS: dict[str, tuple[str, ...]] = {
         "events_ncaamb_game.json",
     ),
     "capture_total_subtitles.py": ("events_totals_by_series.json",),
+    "capture_tennis_odds_fixture.py": (
+        "odds_tennis_sports.json",
+        "odds_tennis_atp_finals_h2h.json",
+        "odds_tennis_wta_finals_h2h.json",
+    ),
     "capture_team_names.py": (
         "nfl_names_kalshi.json",
         "nfl_names_books.json",

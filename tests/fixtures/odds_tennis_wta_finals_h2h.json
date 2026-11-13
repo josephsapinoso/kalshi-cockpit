@@ -1,0 +1,605 @@
+{
+ "captured_ms": 1794593624619,
+ "credit_headers": {
+  "x-requests-last": "1",
+  "x-requests-remaining": "14010",
+  "x-requests-used": "5990"
+ },
+ "events": [
+  {
+   "away_team": "Karolina Muchova",
+   "bookmakers": [
+    {
+     "key": "betfair_ex_eu",
+     "last_update": "2026-11-13T18:13:27Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:27Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.45
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.39
+        }
+       ]
+      },
+      {
+       "key": "h2h_lay",
+       "last_update": "2026-11-13T18:13:27Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.55
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.41
+        }
+       ]
+      }
+     ],
+     "title": "Betfair"
+    },
+    {
+     "key": "matchbook",
+     "last_update": "2026-11-13T18:13:26Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:26Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.5
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.39
+        }
+       ]
+      },
+      {
+       "key": "h2h_lay",
+       "last_update": "2026-11-13T18:13:26Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.55
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.4
+        }
+       ]
+      }
+     ],
+     "title": "Matchbook"
+    },
+    {
+     "key": "draftkings",
+     "last_update": "2026-11-13T18:13:07Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:07Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.32
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.34
+        }
+       ]
+      }
+     ],
+     "title": "DraftKings"
+    },
+    {
+     "key": "sport888",
+     "last_update": "2026-11-13T18:12:49Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:49Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.1
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.36
+        }
+       ]
+      }
+     ],
+     "title": "888sport"
+    },
+    {
+     "key": "fanatics",
+     "last_update": "2026-11-13T18:12:29Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:29Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.2
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.35
+        }
+       ]
+      }
+     ],
+     "title": "Fanatics"
+    },
+    {
+     "key": "fanduel",
+     "last_update": "2026-11-13T18:13:27Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:27Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.3
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.35
+        }
+       ]
+      }
+     ],
+     "title": "FanDuel"
+    },
+    {
+     "key": "betmgm",
+     "last_update": "2026-11-13T18:12:49Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:49Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.1
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.36
+        }
+       ]
+      }
+     ],
+     "title": "BetMGM"
+    },
+    {
+     "key": "bovada",
+     "last_update": "2026-11-13T18:12:03Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:03Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.25
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.35
+        }
+       ]
+      }
+     ],
+     "title": "Bovada"
+    },
+    {
+     "key": "williamhill_us",
+     "last_update": "2026-11-13T18:12:33Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:33Z",
+       "outcomes": [
+        {
+         "name": "Karolina Muchova",
+         "price": 3.1
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.33
+        }
+       ]
+      }
+     ],
+     "title": "Caesars"
+    }
+   ],
+   "commence_time": "2026-11-13T20:00:00Z",
+   "home_team": "Mirra Andreeva",
+   "id": "6b92a67eab021047017da9d42e1e1fae",
+   "sport_key": "tennis_wta_finals",
+   "sport_title": "WTA Finals"
+  },
+  {
+   "away_team": "Elina Svitolina",
+   "bookmakers": [
+    {
+     "key": "betfair_ex_eu",
+     "last_update": "2026-11-13T18:13:27Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:27Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.5
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 2.96
+        }
+       ]
+      },
+      {
+       "key": "h2h_lay",
+       "last_update": "2026-11-13T18:13:27Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.51
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 3.0
+        }
+       ]
+      }
+     ],
+     "title": "Betfair"
+    },
+    {
+     "key": "draftkings",
+     "last_update": "2026-11-13T18:13:07Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:07Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.43
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 2.86
+        }
+       ]
+      }
+     ],
+     "title": "DraftKings"
+    },
+    {
+     "key": "sport888",
+     "last_update": "2026-11-13T18:12:49Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:49Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.5
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 2.6
+        }
+       ]
+      }
+     ],
+     "title": "888sport"
+    },
+    {
+     "key": "fanatics",
+     "last_update": "2026-11-13T18:12:29Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:29Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.45
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 2.75
+        }
+       ]
+      }
+     ],
+     "title": "Fanatics"
+    },
+    {
+     "key": "fanduel",
+     "last_update": "2026-11-13T18:13:27Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:27Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.45
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 2.8
+        }
+       ]
+      }
+     ],
+     "title": "FanDuel"
+    },
+    {
+     "key": "betmgm",
+     "last_update": "2026-11-13T18:12:49Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:49Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.48
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 2.6
+        }
+       ]
+      }
+     ],
+     "title": "BetMGM"
+    },
+    {
+     "key": "matchbook",
+     "last_update": "2026-11-13T18:13:26Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:26Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.5
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 2.96
+        }
+       ]
+      },
+      {
+       "key": "h2h_lay",
+       "last_update": "2026-11-13T18:13:26Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.51
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 3.0
+        }
+       ]
+      }
+     ],
+     "title": "Matchbook"
+    },
+    {
+     "key": "bovada",
+     "last_update": "2026-11-13T18:12:03Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:03Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.45
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 2.8
+        }
+       ]
+      }
+     ],
+     "title": "Bovada"
+    },
+    {
+     "key": "williamhill_us",
+     "last_update": "2026-11-13T18:12:33Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:33Z",
+       "outcomes": [
+        {
+         "name": "Aryna Sabalenka",
+         "price": 1.45
+        },
+        {
+         "name": "Elina Svitolina",
+         "price": 2.65
+        }
+       ]
+      }
+     ],
+     "title": "Caesars"
+    }
+   ],
+   "commence_time": "2026-11-13T21:30:00Z",
+   "home_team": "Aryna Sabalenka",
+   "id": "29a6e4e35a3b385e9666473ad68f2084",
+   "sport_key": "tennis_wta_finals",
+   "sport_title": "WTA Finals"
+  },
+  {
+   "away_team": "Mirra Andreeva",
+   "bookmakers": [
+    {
+     "key": "draftkings",
+     "last_update": "2026-11-13T18:13:07Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:07Z",
+       "outcomes": [
+        {
+         "name": "Jessica Pegula",
+         "price": 2.6
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.51
+        }
+       ]
+      }
+     ],
+     "title": "DraftKings"
+    },
+    {
+     "key": "fanduel",
+     "last_update": "2026-11-13T18:13:27Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:27Z",
+       "outcomes": [
+        {
+         "name": "Jessica Pegula",
+         "price": 2.42
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.58
+        }
+       ]
+      }
+     ],
+     "title": "FanDuel"
+    },
+    {
+     "key": "sport888",
+     "last_update": "2026-11-13T18:12:49Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:49Z",
+       "outcomes": [
+        {
+         "name": "Jessica Pegula",
+         "price": 2.6
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.5
+        }
+       ]
+      }
+     ],
+     "title": "888sport"
+    },
+    {
+     "key": "betfair_ex_eu",
+     "last_update": "2026-11-13T18:13:27Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:13:27Z",
+       "outcomes": [
+        {
+         "name": "Jessica Pegula",
+         "price": 2.34
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.43
+        }
+       ]
+      },
+      {
+       "key": "h2h_lay",
+       "last_update": "2026-11-13T18:13:27Z",
+       "outcomes": [
+        {
+         "name": "Jessica Pegula",
+         "price": 3.35
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.75
+        }
+       ]
+      }
+     ],
+     "title": "Betfair"
+    },
+    {
+     "key": "bovada",
+     "last_update": "2026-11-13T18:12:03Z",
+     "markets": [
+      {
+       "key": "h2h",
+       "last_update": "2026-11-13T18:12:03Z",
+       "outcomes": [
+        {
+         "name": "Jessica Pegula",
+         "price": 2.6
+        },
+        {
+         "name": "Mirra Andreeva",
+         "price": 1.51
+        }
+       ]
+      }
+     ],
+     "title": "Bovada"
+    }
+   ],
+   "commence_time": "2026-11-14T15:00:00Z",
+   "home_team": "Jessica Pegula",
+   "id": "53d87628f7d7ae2c16b9b10ab1be03ab",
+   "sport_key": "tennis_wta_finals",
+   "sport_title": "WTA Finals"
+  }
+ ],
+ "note": "Verbatim /v4/sports/tennis_wta_finals/odds, h2h, ten named bookmakers. Spent from a laptop: ABSENT from api_credits (#439).",
+ "request": {
+  "endpoint": "https://api.the-odds-api.com/v4/sports/tennis_wta_finals/odds",
+  "method": "GET",
+  "note": "Credential omitted. Expected cost 1 credit(s).",
+  "params": {
+   "bookmakers": "pinnacle,matchbook,betfair_ex_eu,fanduel,draftkings,williamhill_us,fanatics,sport888,bovada,betmgm",
+   "markets": "h2h",
+   "oddsFormat": "decimal",
+   "sport": "tennis_wta_finals"
+  }
+ }
+}

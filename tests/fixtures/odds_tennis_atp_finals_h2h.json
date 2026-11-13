@@ -1,0 +1,58 @@
+{
+ "captured_ms": 1794593624507,
+ "credit_headers": {
+  "x-requests-last": "1",
+  "x-requests-remaining": "14011",
+  "x-requests-used": "5989"
+ },
+ "events": [
+  {
+   "away_team": "Rafael Jodar",
+   "bookmakers": [],
+   "commence_time": "2026-11-15T13:00:00Z",
+   "home_team": "Alexander Zverev",
+   "id": "a09dfd51fadc5c32dd0adb4f799b8628",
+   "sport_key": "tennis_atp_finals",
+   "sport_title": "ATP Finals"
+  },
+  {
+   "away_team": "Arthur Fils",
+   "bookmakers": [],
+   "commence_time": "2026-11-15T19:30:00Z",
+   "home_team": "Ben Shelton",
+   "id": "2e7a66dfb5caacad9c224d3eaf230dee",
+   "sport_key": "tennis_atp_finals",
+   "sport_title": "ATP Finals"
+  },
+  {
+   "away_team": "Frances Tiafoe",
+   "bookmakers": [],
+   "commence_time": "2026-11-16T13:00:00Z",
+   "home_team": "Carlos Alcaraz",
+   "id": "c81851847baf5e3a479993ec167a8e2a",
+   "sport_key": "tennis_atp_finals",
+   "sport_title": "ATP Finals"
+  },
+  {
+   "away_team": "Flavio Cobolli",
+   "bookmakers": [],
+   "commence_time": "2026-11-16T19:30:00Z",
+   "home_team": "Daniil Medvedev",
+   "id": "7ac3bf138012785e65835d1481524d5c",
+   "sport_key": "tennis_atp_finals",
+   "sport_title": "ATP Finals"
+  }
+ ],
+ "note": "Verbatim /v4/sports/tennis_atp_finals/odds, h2h, ten named bookmakers. Spent from a laptop: ABSENT from api_credits (#439).",
+ "request": {
+  "endpoint": "https://api.the-odds-api.com/v4/sports/tennis_atp_finals/odds",
+  "method": "GET",
+  "note": "Credential omitted. Expected cost 1 credit(s).",
+  "params": {
+   "bookmakers": "pinnacle,matchbook,betfair_ex_eu,fanduel,draftkings,williamhill_us,fanatics,sport888,bovada,betmgm",
+   "markets": "h2h",
+   "oddsFormat": "decimal",
+   "sport": "tennis_atp_finals"
+  }
+ }
+}

@@ -1,0 +1,443 @@
+{
+ "captured_ms": 1794593624393,
+ "credit_headers": {
+  "x-requests-last": "0",
+  "x-requests-remaining": "14012",
+  "x-requests-used": "5988"
+ },
+ "note": "Tennis entries of /v4/sports?all=true, verbatim. Free endpoint.",
+ "request": {
+  "endpoint": "https://api.the-odds-api.com/v4/sports",
+  "method": "GET",
+  "note": "Credential omitted. Filtered to keys starting 'tennis' after the call.",
+  "params": {
+   "all": "true"
+  }
+ },
+ "sports": [
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_aus_open_singles",
+   "title": "ATP Australian Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_barcelona_open",
+   "title": "ATP Barcelona Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_canadian_open",
+   "title": "ATP Canadian Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_china_open",
+   "title": "ATP China Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_cincinnati_open",
+   "title": "ATP Cincinnati Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_dubai",
+   "title": "ATP Dubai"
+  },
+  {
+   "active": true,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_finals",
+   "title": "ATP Finals"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_french_open",
+   "title": "ATP French Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_halle_open",
+   "title": "ATP Halle Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_hamburg_open",
+   "title": "ATP Hamburg Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_indian_wells",
+   "title": "ATP Indian Wells"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_italian_open",
+   "title": "ATP Italian Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_japan_open",
+   "title": "ATP Japan Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_madrid_open",
+   "title": "ATP Madrid Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_miami_open",
+   "title": "ATP Miami Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_monte_carlo_masters",
+   "title": "ATP Monte-Carlo Masters"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_munich",
+   "title": "ATP Munich"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_paris_masters",
+   "title": "ATP Paris Masters"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_qatar_open",
+   "title": "ATP Qatar Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_queens_club_champ",
+   "title": "ATP Queen's Club Championships"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_shanghai_masters",
+   "title": "ATP Shanghai Masters"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_swiss_indoors",
+   "title": "ATP Swiss Indoors Basel"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_us_open",
+   "title": "ATP US Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_vienna_open",
+   "title": "ATP Vienna Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_washington_open",
+   "title": "ATP Washington Open"
+  },
+  {
+   "active": false,
+   "description": "Men's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_atp_wimbledon",
+   "title": "ATP Wimbledon"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_aus_open_singles",
+   "title": "WTA Australian Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_bad_homburg_open",
+   "title": "WTA Bad Homburg Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_canadian_open",
+   "title": "WTA Canadian Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_charleston_open",
+   "title": "WTA Charleston Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_china_open",
+   "title": "WTA China Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_cincinnati_open",
+   "title": "WTA Cincinnati Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_dubai",
+   "title": "WTA Dubai Championships"
+  },
+  {
+   "active": true,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_finals",
+   "title": "WTA Finals"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_french_open",
+   "title": "WTA French Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_german_open",
+   "title": "WTA German Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_guadalajara_open",
+   "title": "WTA Guadalajara Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_indian_wells",
+   "title": "WTA Indian Wells"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_italian_open",
+   "title": "WTA Italian Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_madrid_open",
+   "title": "WTA Madrid Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_miami_open",
+   "title": "WTA Miami Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_monterrey_open",
+   "title": "WTA Monterrey Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_ningbo_open",
+   "title": "WTA Ningbo Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_pan_pacific_open",
+   "title": "WTA Pan Pacific Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_qatar_open",
+   "title": "WTA Qatar Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_queens_club_champ",
+   "title": "WTA Queen's Club Championships"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_singapore_open",
+   "title": "WTA Singapore Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_strasbourg",
+   "title": "WTA Internationaux de Strasbourg"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_stuttgart_open",
+   "title": "WTA Stuttgart Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_us_open",
+   "title": "WTA US Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_washington_open",
+   "title": "WTA Washington Open"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_wimbledon",
+   "title": "WTA Wimbledon"
+  },
+  {
+   "active": false,
+   "description": "Women's Singles",
+   "group": "Tennis",
+   "has_outrights": false,
+   "key": "tennis_wta_wuhan_open",
+   "title": "WTA Wuhan Open"
+  }
+ ]
+}
