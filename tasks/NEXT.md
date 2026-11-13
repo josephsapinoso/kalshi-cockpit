@@ -139,6 +139,40 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-11-13 (hundred-and-thirteenth session) — the tennis check is built and live (#445, #446 closed); question for Joe on Challenger legs (#447)
+
+- **Live on `ef63a77b`** (`/api/health` `build.git_sha`, read after the deploy). CI green on every push; 0 Dependabot alerts.
+- **#445 closed** (`c1900089` tables + `KIND_TENNIS`; `f98dd370` runner).
+  - Schema **v70**, tables only: `tennis_links`, `tennis_snapshots`. A tennis reading never enters `odds_snapshots`.
+  - `KIND_TENNIS` is keyed by the Kalshi event ticker. `DEFAULT_TENNIS_DAILY_CREDITS = 10`, inside the 150.
+  - `backend/tennis_serve.py` serves the kind from `scripts/run_loop.py` before the quote pass:
+    - free reads: the Kalshi event, `/sports` and `/sports/{key}/events` (recorded in `api_credits` at the vendor's own `x-requests-last`);
+    - then one 1-credit `h2h` buy, `trigger = 'manual'`.
+  - Refusals stand 2 min when free and 1 h after a paid empty book. A budget refusal writes no row.
+  - The isolation test runs the `odds_snapshots` mutation every time. The planner, the refresh card and the fixture list each go red under it.
+- **#446 closed** (lane `82f9f596`, `e22d387a`; merge `3fd177ad`; `ef63a77b`).
+  - Check this parlay prices a KXATPMATCH/KXWTAMATCH leg from the two tables, and buys at most once per match.
+  - kalshi-platform: MERGE WITH FIXES, all five applied:
+    - the settlement note says only what the captured rule says;
+    - a missing commence time refuses;
+    - the started check takes the earlier commence;
+    - the runner's two refusal codes have words;
+    - a one-book chance is flagged `too_few_books`.
+  - CI then caught the soft-fallback guard. The screen now says "No sharp book behind this price" in accent ink, and `CheckAParlay.tsx` is in `PRICE_SURFACES`.
+- **Not verified on live:** no real tennis check has run. A check writes a `parlay_lookups` row to Joe's record, so it waits for his word. ATP/WTA Finals books exist through ~11-16. Otherwise **#448** (2027-01-18, Australian Open) is the first live look.
+- **What (C) really covers** (partner, checked against #331):
+  - the feed keys tennis per tournament (Slams, 1000s, some 500s, Finals);
+  - there is no Challenger key;
+  - 27 of 200 of Joe's combos carried a Challenger leg;
+  - most readings will be soft-book.
+- Question for Joe: tennis Challenger legs can never get a desk reading — accept that, or price a second odds source? — #447
+
+### Still open (adds to the list below; #445 and #446 are closed)
+
+1. #447 — Joe: Challenger legs, accept or price a second source.
+2. #448 — 2027-01-18: the first Australian Open tennis check on live.
+3. #347 — the dry engine's no-op work and dead routes (partner: leads the next session if the frontier stays thin).
+
 ## 2026-11-13 (hundred-and-twelfth session) — laptop: Joe's (A) to #442 done; the tennis odds are captured (#439); a late-added book proven fresh (#436 closed); refusal read (#401 and #360 closed); Dependabot clean
 
 - **Dependabot: 0 open alerts.** `pip-audit -r requirements.txt` and `npm audit --omit=dev` found nothing. `cryptography` is 50.0.1 in the venv (the pin is `~=50.0`). GitHub's advisories for it all close at 50.0.0 or below. The running container's version was not read.
@@ -761,6 +795,8 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-11-13 (hundred-and-thirteenth session) — the tennis check is built and live (#445, #446 closed); question for Joe on Challenger legs (#447)
+- 2026-11-13 (hundred-and-twelfth session) — laptop: Joe's (A) to #442 done; the tennis odds are captured (#439); a late-added book proven fresh (#436 closed); refusal read (#401 and #360 closed); Dependabot clean
 - 2026-11-13 (hundred-and-eleventh session) — Kalshi's tennis payloads captured (#441); #439's "no caller" fact corrected; Joe answered #442 (A): live reads go to a laptop session
 - 2026-11-13 (hundred-and-tenth session) — Joe answered #435 (A), #427 (A) and #426 (C); #437's copy audited and fixed; the linker's overrides made exclusive (#434)
 - 2026-11-13 (hundred-and-ninth session) — ALSHI's architecture weighed: a serve-only home rehearsal (#435) and live Kalshi prices on the ticket and held legs (#436); on branch `claude/friendly-rubin-1g1903`, not deployed

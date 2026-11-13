@@ -16,6 +16,15 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-11-13 - A guard keyed on a field name lives outside the feature's files
+
+From the hundred-and-thirteenth session (#446, caught by CI after merge).
+
+- **The #446 lane ran every test file named after the feature and was green, and CI then failed on `tests/test_soft_fallback_is_shown_on_every_price_surface.py`.** That test scans every component for the string `anchored_on_sharp` and requires each one to be a registered price surface. The lane's screen read the flag, said only "all books" in muted ink when no sharp book backed the price, and was registered nowhere. Choosing tests by feature name cannot find a guard that is keyed on a field.
+- **The rule:**
+  - Before merging a lane that reads a new wire field, run `git grep -ln "<field>" tests` for each field its diff reads, and run those files too.
+  - A lane brief that adds a screen field names those guard files.
+
 ## 2026-11-13 - A "no caller" claim is only as wide as the tree it searched
 
 From the hundred-and-eleventh session (#439, corrected by `partner`).
