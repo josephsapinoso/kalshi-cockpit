@@ -3262,3 +3262,58 @@ CREATE TABLE IF NOT EXISTS venue_combo_leg_refusals (
     reason          TEXT NOT NULL,
     read_ms         INTEGER NOT NULL
 );
+
+-- v70 (2026-11-13, #445, #439 design §4/§6): a tennis leg priced on a check.
+-- Tennis is outside discovery, so these are the ONLY tables a tennis reading
+-- lives in. **It is never written to `odds_snapshots`**: an insert there fires
+-- `trg_odds_fixtures_upsert`, `upcoming_fixtures_by_sport` then hands the
+-- tennis fixture to `decide_sweeps`, and the planner buys tennis at 3 credits
+-- a call all tournament, each call storing more tennis. `tests/
+-- test_tennis_ondemand.py` asserts the isolation and turns red if the runner
+-- writes there instead.
+--
+-- One row per Kalshi match event. `refusal_reason` NULL means linked: the
+-- odds event is known and `tennis_snapshots` holds what was bought for it.
+-- A refusal row stands until `expires_ms` (a free refusal: the on-demand
+-- cooldown; `no_two_sided_book`, which follows a paid call: one hour), then
+-- the next check may ask again. `player_*` are Kalshi's own names
+-- (`yes_sub_title`) beside each market's ticker, which is what the check
+-- prices the leg by -- by name, never by the book's home/away.
+CREATE TABLE IF NOT EXISTS tennis_links (
+    kalshi_event_ticker TEXT PRIMARY KEY,
+    odds_event_id       TEXT,
+    sport_key           TEXT,
+    market_a_ticker     TEXT,
+    player_a            TEXT,
+    market_b_ticker     TEXT,
+    player_b            TEXT,
+    occurrence_ms       INTEGER,
+    commence_ms         INTEGER,
+    -- book commence - Kalshi occurrence, as `commence_skew_ms` elsewhere.
+    commence_skew_ms    INTEGER,
+    linked_ms           INTEGER NOT NULL,
+    refusal_reason      TEXT,
+    refusal_detail      TEXT,
+    expires_ms          INTEGER,
+    CHECK (refusal_reason IS NOT NULL OR odds_event_id IS NOT NULL)
+);
+
+-- One row per book per outcome per fetch of one match's `h2h`, parsed by the
+-- odds client's own parser (so `h2h_lay` never arrives). Keyed by the odds
+-- event; the latest `fetched_ms` for an event is the reading.
+CREATE TABLE IF NOT EXISTS tennis_snapshots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    fetched_ms      INTEGER NOT NULL,
+    book_updated_ms INTEGER,
+    sport_key       TEXT NOT NULL,
+    odds_event_id   TEXT NOT NULL,
+    commence_ms     INTEGER NOT NULL,
+    home_team       TEXT NOT NULL,
+    away_team       TEXT NOT NULL,
+    bookmaker       TEXT NOT NULL,
+    market          TEXT NOT NULL,
+    outcome_name    TEXT NOT NULL,
+    price_decimal   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tennis_snapshots_event
+    ON tennis_snapshots(odds_event_id, fetched_ms);

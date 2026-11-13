@@ -317,7 +317,12 @@ logger = logging.getLogger(__name__)
 #: for v51's reason) and `parlay_lookups.tailed_from` (the name typed on
 #: Check a parlay). Nullable column steps; no backfill -- NULL is the truth
 #: about every earlier row, and Joe chose names going forward only.
-SCHEMA_VERSION = 69
+#:
+#: v70 (2026-11-13, #445, #439 design) adds ONLY tables: `tennis_links` and
+#: `tennis_snapshots`, a tennis leg's link and reading. Created by
+#: `schema.sql`; no step. They are deliberately apart from `odds_snapshots`
+#: -- see the comment on them there.
+SCHEMA_VERSION = 70
 
 #: Per-connection page cache, in KiB. Read connections get the larger share
 #: because a person is waiting on them; the writer is the recording loop.
@@ -1400,12 +1405,12 @@ _LEG_VERDICTS_ADMIT_CHECK_BUTTON_UNDO = (
 #:   v27 `combo_eligible_events`, v29 `manual_order_refusals`,
 #:   v30 `combo_orders`, v42 `api_read_incidents`,
 #:   v45 `combo_rfqs` and `combo_rfq_quotes`, v59 `game_script_cards`,
-#:   v63 `pick_sources`.
+#:   v63 `pick_sources`, v70 `tennis_links` and `tennis_snapshots`.
 #:
 #: v33 is NOT here although it adds a table (`venue_positions`): it also adds
 #: a column to `poll_log`, which makes it a step. A version is one or the
 #: other, never both.
-_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59, 63)
+_TABLELESS_VERSIONS: tuple[int, ...] = (22, 23, 24, 27, 29, 30, 42, 45, 57, 59, 63, 70)
 
 
 _MIGRATIONS: dict[int, _Migration] = {

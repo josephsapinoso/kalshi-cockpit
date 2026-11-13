@@ -134,7 +134,13 @@ DEFAULT_MANUAL_DAILY_CREDITS = 150
 # needs only the odds event id, which the check already has from `event_links`.
 KIND_TEAM = "team"
 KIND_ALT_LINES = "alt_lines"
-KINDS = (KIND_TEAM, KIND_ALT_LINES)
+# `tennis` (#445, #439 design §7; Joe's C to #426) buys ONE tennis match's
+# `h2h`, keyed by the KALSHI event ticker: tennis is outside discovery, so the
+# check has no odds event id to name. The runner reads the event off Kalshi,
+# finds the sportsbook match by name and buys it. 1 credit at the deployed ten
+# books (measured 2026-11-13, `odds_tennis_event_h2h.json`).
+KIND_TENNIS = "tennis"
+KINDS = (KIND_TEAM, KIND_ALT_LINES, KIND_TENNIS)
 
 # `ALT_LINE_MARKETS` (defined in `.timing`, imported above) names what such a
 # buy asks the vendor for; it is re-exported from here for the API.
@@ -146,6 +152,12 @@ KINDS = (KIND_TEAM, KIND_ALT_LINES)
 # are-two-sided.md), so this is fifteen game-checks a day. A ceiling, not a
 # forecast: "check this parlay" was used twice in its first week.
 DEFAULT_ALT_LINE_DAILY_CREDITS = 30
+
+# Tennis buys may take this much of the day, also **inside** the manual slice:
+# ten matches a day. The day's worst case does not move -- which holds only
+# because a tennis reading never enters `odds_snapshots` (see
+# `backend/store/tennis_readings.py`), so a buy cannot seed the planner.
+DEFAULT_TENNIS_DAILY_CREDITS = 10
 
 # A request nobody served within this long is dropped rather than served late.
 # Someone who tapped, waited, and put the phone down does not want a refresh
@@ -200,6 +212,10 @@ class RefreshRequest:
     estimated_credits: int
     # Defaulted so every entry written before #303 decodes as what it was.
     kind: str = KIND_TEAM
+    # Set only on `KIND_TENNIS`: the Kalshi match event, and the leg's own
+    # market in it (the runner reads the event by that market's ticker).
+    kalshi_event_ticker: Optional[str] = None
+    market_ticker: Optional[str] = None
 
     @property
     def key(self) -> str:
@@ -213,6 +229,10 @@ class RefreshRequest:
             # Its own purchase: an alt-line buy must not cool down a props
             # tap on the same fixture, or the other way round.
             return f"alt|{self.sport_key}|{self.odds_event_id}"
+        if self.kind == KIND_TENNIS:
+            # Per match, so one check of a three-leg tennis slip buys each
+            # match at most once, and a second check inside the cooldown none.
+            return f"tennis|{self.kalshi_event_ticker}"
         return f"{self.sport_key}|{self.odds_event_id or '-'}"
 
 
@@ -323,12 +343,24 @@ def _decode(item: dict) -> Optional[RefreshRequest]:
         # An alt-line buy is per fixture by construction; one with no fixture
         # would reach the per-event endpoint with no event id.
         return None
+    kalshi_event = item.get("kalshi_event_ticker")
+    market = item.get("market_ticker")
+    if kind == KIND_TENNIS:
+        # Both tickers, or the runner has no match to read.
+        if not (isinstance(kalshi_event, str) and kalshi_event):
+            return None
+        if not (isinstance(market, str) and market):
+            return None
+    else:
+        kalshi_event = market = None
     return RefreshRequest(
         sport_key=sport,
         odds_event_id=event,
         requested_ms=requested,
         estimated_credits=cost,
         kind=kind,
+        kalshi_event_ticker=kalshi_event,
+        market_ticker=market,
     )
 
 
@@ -373,6 +405,9 @@ def submit(
     day_start_hour: int = DEFAULT_DAY_START_UTC_HOUR,
     kind: str = KIND_TEAM,
     alt_line_daily_credits: int = DEFAULT_ALT_LINE_DAILY_CREDITS,
+    kalshi_event_ticker: Optional[str] = None,
+    market_ticker: Optional[str] = None,
+    tennis_daily_credits: int = DEFAULT_TENNIS_DAILY_CREDITS,
 ) -> Submission:
     """Accept a tap, or refuse it and say which ceiling refused.
 
@@ -395,9 +430,13 @@ def submit(
         requested_ms=now_ms,
         estimated_credits=estimated_credits,
         kind=kind,
+        kalshi_event_ticker=kalshi_event_ticker if kind == KIND_TENNIS else None,
+        market_ticker=market_ticker if kind == KIND_TENNIS else None,
     )
     if kind not in KINDS or (kind == KIND_ALT_LINES and not odds_event_id):
         raise ValueError(f"not a refresh this inbox can carry: {kind!r}, {odds_event_id!r}")
+    if kind == KIND_TENNIS and not (kalshi_event_ticker and market_ticker):
+        raise ValueError("a tennis buy names the Kalshi event and the leg's market")
     retained = _read(path)
     decoded = [r for r in (_decode(item) for item in retained) if r is not None]
 
@@ -447,6 +486,20 @@ def submit(
                 estimated_credits=estimated_credits,
             )
 
+    if kind == KIND_TENNIS:
+        tennis_spent = _reserved_since(decoded, start, KIND_TENNIS)
+        if tennis_spent + estimated_credits > tennis_daily_credits:
+            return Submission(
+                accepted=False,
+                detail=(
+                    f"buying tennis prices for checked parlays has used "
+                    f"{tennis_spent} of the {tennis_daily_credits} credits "
+                    f"allowed for it today and this match costs "
+                    f"{estimated_credits}."
+                ),
+                estimated_credits=estimated_credits,
+            )
+
     if budget_refusal is not None:
         return Submission(
             accepted=False,
@@ -463,6 +516,14 @@ def submit(
                 "requested_ms": r.requested_ms,
                 "estimated_credits": r.estimated_credits,
                 "kind": r.kind,
+                **(
+                    {
+                        "kalshi_event_ticker": r.kalshi_event_ticker,
+                        "market_ticker": r.market_ticker,
+                    }
+                    if r.kind == KIND_TENNIS
+                    else {}
+                ),
             }
             # Newest first, so the cap trims the oldest.
             for r in sorted(
@@ -476,7 +537,7 @@ def submit(
             f"buying {_describe(request)} now -- {estimated_credits} credits. "
             + (
                 "Check again in about 30 seconds."
-                if kind == KIND_ALT_LINES
+                if kind in (KIND_ALT_LINES, KIND_TENNIS)
                 else "The board updates within about 15 seconds."
             )
         ),
@@ -485,6 +546,8 @@ def submit(
 
 
 def _describe(request: RefreshRequest) -> str:
+    if request.kind == KIND_TENNIS:
+        return f"the sportsbook prices for tennis match {request.kalshi_event_ticker}"
     if request.kind == KIND_ALT_LINES:
         return f"the other spreads and totals for {request.sport_key} fixture {request.odds_event_id}"
     if request.odds_event_id:

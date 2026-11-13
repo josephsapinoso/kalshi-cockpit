@@ -363,7 +363,7 @@ class TestMigrationToV69:
 
         connection = db.init_db(path)
         try:
-            assert db.get_meta(connection, "schema_version") == "69"
+            assert db.get_meta(connection, "schema_version") == str(db.SCHEMA_VERSION)
             for table in ("pick_sources", "parlay_lookups"):
                 columns = {r[1] for r in connection.execute(f"PRAGMA table_info({table})")}
                 assert "tailed_from" in columns, table
