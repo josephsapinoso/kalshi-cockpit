@@ -20,18 +20,13 @@ import { Button, Stat } from "@/components/ui";
 /**
  * What a tennis leg adds to the wire (#446). `types/parlays.ts` still types
  * `line_source` as main | alternate, so the extra fields are read through this
- * local widening until that file takes them.
+ * local widening until that file is widened.
  */
 type TennisLegFields = {
   line_source: "main" | "alternate" | "tennis" | null;
   books_used?: string[] | null;
   anchored_on_sharp?: boolean | null;
   settlement_note?: string | null;
-};
-type TennisBuy = {
-  kalshi_event_ticker: string;
-  accepted: boolean;
-  detail: string;
 };
 
 /**
@@ -316,14 +311,6 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
         })}
       </ol>
 
-      {/* #446: a tennis buy the inbox REFUSED is said in its own words. */}
-      {((value as typeof value & { tennis_buys?: TennisBuy[] }).tennis_buys ?? [])
-        .filter((buy) => !buy.accepted)
-        .map((buy) => (
-          <p key={buy.kalshi_event_ticker} className="text-xs text-muted">
-            Could not buy this match’s sportsbook price: {buy.detail}
-          </p>
-        ))}
 
       {/* #303: a buy the inbox REFUSED is said in its own words. An accepted
           one needs no line here -- its legs already carry the server
@@ -332,7 +319,10 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
         .filter((buy) => !buy.accepted)
         .map((buy) => (
           <p key={buy.odds_event_id} className="text-xs text-muted">
-            Could not buy this game’s other lines: {buy.detail}
+            {(buy as typeof buy & { kind?: string }).kind === "tennis"
+              ? "Could not buy this match’s sportsbook price: "
+              : "Could not buy this game’s other lines: "}
+            {buy.detail}
           </p>
         ))}
 

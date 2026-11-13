@@ -1141,16 +1141,19 @@ async def check_parlay_text(
 
     # One request per MATCH (the inbox keys it by the Kalshi event), and only
     # when a buyer is wired: a check stays a read wherever it has none.
-    tennis_buys: list[dict] = []
+    # They ride in `alt_buys` (the response contract's one purchases list),
+    # tagged `kind = "tennis"`; `odds_event_id` falls back to the Kalshi event
+    # ticker while the match has no sportsbook id yet.
     if request_tennis is not None:
         for event_ticker, (sport_key, market_ticker, odds_event_id, indexes) in (
             tennis_wanted.items()
         ):
             submission = request_tennis(sport_key, event_ticker, market_ticker)
-            tennis_buys.append(
+            alt_buys.append(
                 {
+                    "kind": "tennis",
                     "kalshi_event_ticker": event_ticker,
-                    "odds_event_id": odds_event_id,
+                    "odds_event_id": odds_event_id or event_ticker,
                     "accepted": bool(getattr(submission, "accepted", False)),
                     "detail": str(getattr(submission, "detail", "")),
                     "estimated_credits": int(
@@ -1159,7 +1162,7 @@ async def check_parlay_text(
                     "retry_after_ms": int(getattr(submission, "retry_after_ms", 0)),
                 }
             )
-            if tennis_buys[-1]["accepted"]:
+            if alt_buys[-1]["accepted"]:
                 for i in indexes:
                     response_legs[i]["unknown_reason_code"] = REASON_BUYING_LINE
                     response_legs[i]["unknown_reason"] = _reason_words(
@@ -1337,8 +1340,6 @@ async def check_parlay_text(
         # accepted or refused, in the inbox's own words. Empty when nothing
         # was bought.
         "alt_buys": alt_buys,
-        # The tennis matches this check asked to buy (#446), one per match.
-        "tennis_buys": tennis_buys,
         "fair": {
             "conservative": fair_joint,
             "conservative_percent_display": _percent_display(fair_joint),

@@ -138,7 +138,7 @@ class TestAStoredReadingGetsAChance:
         assert leg["books_used"] and isinstance(leg["anchored_on_sharp"], bool)
         assert "ball has been played" in leg["settlement_note"]
         assert "were not read" in leg["settlement_note"]
-        assert buyer.calls == [] and result["tennis_buys"] == []
+        assert buyer.calls == [] and result["alt_buys"] == []
         # Both legs priced, two different games: a joint exists.
         assert result["fair"]["no_joint_reason"] is None
 
@@ -178,7 +178,8 @@ class TestNoReadingSubmitsOnce:
         assert leg["chance"] is None
         assert leg["unknown_reason_code"] == parlay_check.REASON_BUYING_LINE
         assert "30 seconds" in leg["unknown_reason"]
-        assert result["tennis_buys"][0]["accepted"] is True
+        assert result["alt_buys"][0]["accepted"] is True
+        assert result["alt_buys"][0]["kind"] == "tennis"
         assert leg["line_source"] is None
 
     async def test_a_refused_buy_leaves_the_leg_unknown_not_buying(self, conn):
@@ -187,14 +188,14 @@ class TestNoReadingSubmitsOnce:
         leg = legs[(AND_T, "yes")]
         assert leg["chance"] is None
         assert leg["unknown_reason_code"] == parlay_check.REASON_TENNIS_NO_READING
-        assert result["tennis_buys"][0]["accepted"] is False
+        assert result["alt_buys"][0]["accepted"] is False
 
     async def test_a_link_with_no_reading_yet_submits_with_the_match_id(self, conn):
         _store_link_and_reading(conn, with_reading=False)
         buyer = TennisBuyer()
         result, legs = await _check(conn, [_tennis_leg()], buyer=buyer)
         assert buyer.calls == [("tennis_wta", EVENT, AND_T)]
-        assert result["tennis_buys"][0]["odds_event_id"] == ODDS_ID
+        assert result["alt_buys"][0]["odds_event_id"] == ODDS_ID
         assert legs[(AND_T, "yes")]["unknown_reason_code"] == "buying_line"
 
     async def test_a_check_without_a_buyer_stays_a_read(self, conn):
@@ -210,7 +211,7 @@ class TestNoReadingSubmitsOnce:
             conn, [_tennis_leg(AND_T, "yes"), _tennis_leg(MUC_T, "yes")], buyer=buyer
         )
         assert len(buyer.calls) == 1
-        assert len(result["tennis_buys"]) == 1
+        assert len(result["alt_buys"]) == 1
         assert legs[(AND_T, "yes")]["unknown_reason_code"] == "buying_line"
         assert legs[(MUC_T, "yes")]["unknown_reason_code"] == "buying_line"
 
