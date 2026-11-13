@@ -117,6 +117,9 @@ import sqlite3
 import re
 from typing import Callable, Optional, Sequence
 
+from dataclasses import dataclass
+
+from backend import tennis, tennis_serve
 from backend.alt_lines import alt_candidate_for_leg
 from backend.core.correlation import CorrelationRefused
 from backend.core.fees import COMBO_TAKER_COEFFICIENT, combo_taker_fee
@@ -132,6 +135,7 @@ from backend.core.parlay import ParlayQuote, value_parlay
 from backend.kalshi.orderbook import OrderBook
 from backend.kalshi.rest import EXCHANGE_INDEX_COMBOS
 from backend.kalshi.rfq import RfqRefused, mve_legs
+from backend.store import tennis_readings
 from backend.team_rest_reader import rest_for_games
 from backend.bets import KIND_COMBO, bets_record
 from backend.pick_sources import (
@@ -207,6 +211,9 @@ REASON_NOT_SERVED = "not_served"
 #: The leg's exact line is not on file and a buy of that game's alternate
 #: lines was just accepted (#303). Not a chance and not a refusal: check again.
 REASON_BUYING_LINE = "buying_line"
+#: A tennis leg with no stored reading and no purchase in flight (#446): the
+#: check was called without a buyer, or the inbox refused it.
+REASON_TENNIS_NO_READING = "tennis_no_reading"
 
 #: The two codes an alternate reading may answer (#303): a leg the pool never
 #: served at this line, or one whose main-line reading went stale because the
@@ -230,6 +237,61 @@ _MISSING_LEG_REASON_WORDS: dict[str, str] = {
         "30 seconds"
     ),
 }
+
+
+#: Words for a tennis leg's refusals (#446, #439 design §1-§6). The codes are
+#: `backend.tennis`'s and `tennis_links.refusal_reason`'s own.
+_TENNIS_REASON_WORDS: dict[str, str] = {
+    tennis.NO_SPORTSBOOK_TOURNAMENT: (
+        "no sportsbook carries this tournament (Challenger, ITF, team events, "
+        "exhibitions and doubles are not priced)"
+    ),
+    tennis.NOT_MATCH_WINNER: (
+        "this is not a match-winner market, and only match winners are priced "
+        "for tennis"
+    ),
+    tennis.UNREADABLE_EVENT: (
+        "Kalshi's match listing for this leg could not be read cleanly"
+    ),
+    tennis.NO_SPORTSBOOK_MATCH: (
+        "no sportsbook match with these two players was found"
+    ),
+    tennis.AMBIGUOUS_MATCH: (
+        "more than one sportsbook match fits these two players"
+    ),
+    tennis.NO_TWO_SIDED_BOOK: (
+        "no sportsbook has priced both players of this match yet"
+    ),
+    tennis.DEVIG_FAILED: "the books' prices for this match could not be combined",
+    tennis.UNKNOWN_SIDE: "this leg's side could not be read",
+    REASON_TENNIS_NO_READING: (
+        "no sportsbook price for this match is on file"
+    ),
+    # Written by the runner (`backend/tennis_serve.py`) into
+    # `tennis_links.refusal_reason`, and read back through the link.
+    tennis_serve.READ_FAILED: (
+        "Kalshi's or the sportsbooks' match listing could not be read just now"
+    ),
+    tennis_serve.ODDS_CALL_FAILED: (
+        "the sportsbook price request failed (it may still have been billed)"
+    ),
+}
+
+#: Kalshi's own rule as captured (`rules_primary` / `rules_secondary` in
+#: `tests/fixtures/kalshi_tennis_event_wta_main.json`), with our reading of
+#: retirement marked as ours: the rule does not name it (kalshi-platform
+#: review of #446). **Shown, not refused**: a fact on the row, never ranking
+#: or sizing anything.
+TENNIS_SETTLEMENT_NOTE = (
+    "Kalshi's rule: this pays if the player wins the match after a ball has "
+    "been played, so a player who retires mid-match should lose it (our "
+    "reading; the rule does not name retirement). A match that never starts "
+    "resolves at a fair price, and a postponed one stays open up to two weeks. "
+    "How a combination settles when one leg resolves at a fair price, and the "
+    "sportsbooks' own retirement rules, were not read."
+)
+
+_MISSING_LEG_REASON_WORDS.update(_TENNIS_REASON_WORDS)
 
 
 def _reason_words(code: Optional[str]) -> Optional[str]:
@@ -530,6 +592,135 @@ def _missing_leg_reason(
     return REASON_NOT_SERVED
 
 
+@dataclass
+class _TennisRead:
+    """One tennis leg's answer from the stored tables (#446). `code` is set
+    iff there is no `chance`; `want_buy` names the one purchase that could
+    change that."""
+
+    code: Optional[str] = None
+    chance: Optional[float] = None
+    commence_ms: Optional[int] = None
+    candidate: Optional[CandidateLeg] = None
+    books_used: Optional[list] = None
+    anchored_on_sharp: Optional[bool] = None
+    want_buy: Optional[tuple] = None  # (sport_key, odds_event_id | None)
+
+
+#: Series prefixes that name tennis even when the series is not a priced
+#: match winner, so such a leg says why instead of "no consensus".
+_TENNIS_SERIES_PREFIXES = ("KXATP", "KXWTA", "KXITF", "KXTENNIS")
+
+
+def _is_tennis_series(market_ticker: str, cls: "tennis.SeriesClass") -> bool:
+    if cls.tier is not None or cls.reason == tennis.NO_SPORTSBOOK_TOURNAMENT:
+        return True
+    return str(market_ticker).split("-")[0].startswith(_TENNIS_SERIES_PREFIXES)
+
+
+def _tennis_read(
+    conn,
+    *,
+    event_ticker: str,
+    market_ticker: str,
+    side: str,
+    label: str,
+    now_ms: int,
+    max_odds_age_ms: int,
+) -> Optional[_TennisRead]:
+    """Price one tennis leg from `tennis_links` / `tennis_snapshots` only.
+
+    `None` means "not a tennis leg": the caller falls through to the pool.
+    **Reads two tables and the clock; never the network and never
+    `odds_snapshots`/`fair_prices`** (design §4: a tennis reading lives in its
+    own tables). A per-row fact: nothing here ranks or sizes.
+    """
+    cls = tennis.classify_series(market_ticker)
+    if not _is_tennis_series(market_ticker, cls):
+        return None
+    if cls.reason is not None:
+        return _TennisRead(code=cls.reason)
+
+    sport_key = f"tennis_{cls.tier}"
+    link = tennis_readings.read_link(conn, event_ticker, now_ms=now_ms)
+    if link is None:
+        return _TennisRead(code=REASON_TENNIS_NO_READING, want_buy=(sport_key, None))
+    if not link.linked:
+        # A refusal that still stands, in its own words.
+        return _TennisRead(code=link.refusal_reason, commence_ms=link.commence_ms)
+
+    rows = tennis_readings.latest_reading_rows(conn, link.odds_event_id)
+    if not rows:
+        return _TennisRead(
+            code=REASON_TENNIS_NO_READING,
+            commence_ms=link.commence_ms,
+            want_buy=(sport_key, link.odds_event_id),
+        )
+    # The EARLIER of the link's commence and the newest reading's: a book
+    # that moved the match forward ("followed by" scheduling) must not let an
+    # in-play price through as pre-game. Earlier refuses sooner, which costs a
+    # price, never money.
+    stamps_c = [
+        c for c in (link.commence_ms, rows[0].get("commence_ms")) if c is not None
+    ]
+    commence_ms = min(stamps_c) if stamps_c else None
+    if commence_ms is None:
+        # Unreadable resolves to a refusal, never to a made-up "now".
+        return _TennisRead(code=tennis.UNREADABLE_EVENT)
+    if commence_ms <= now_ms:
+        return _TennisRead(code=REASON_GAME_STARTED, commence_ms=commence_ms)
+
+    player = link.player_for(market_ticker)
+    if player is None:
+        return _TennisRead(code=tennis.UNREADABLE_EVENT, commence_ms=commence_ms)
+    reading = tennis.price_leg(rows, link.players, side, player)
+    if reading.chance is None:
+        return _TennisRead(code=reading.reason, commence_ms=commence_ms)
+
+    used = set(reading.books_used)
+    stamps = [
+        r.get("book_updated_ms") or r.get("fetched_ms")
+        for r in rows
+        if r.get("bookmaker") in used
+    ]
+    stamps = [s for s in stamps if s is not None]
+    candidate = CandidateLeg(
+        label=label,
+        event_title=label,
+        kalshi_event_ticker=event_ticker,
+        kalshi_market_ticker=market_ticker,
+        odds_event_id=str(link.odds_event_id),
+        league=f"tennis_{cls.tier}",
+        commence_ms=int(commence_ms),
+        market="h2h",
+        team=None,
+        point=None,
+        p_conservative=reading.chance,
+        p_by_method={},
+        # The oldest book used, as every other leg's age is. No stamp at all
+        # is unmeasurable, which `unusable_reason` refuses.
+        odds_age_now_ms=(now_ms - min(stamps)) if stamps else None,
+        book_count=len(reading.books_used),
+        books_used_json=None,
+        anchored_on_sharp=reading.anchored_on_sharp,
+        side=side,
+    )
+    code = unusable_reason(candidate, max_odds_age_ms=max_odds_age_ms)
+    if code is not None:
+        return _TennisRead(
+            code=code,
+            commence_ms=commence_ms,
+            want_buy=(sport_key, link.odds_event_id) if code == "stale_consensus" else None,
+        )
+    return _TennisRead(
+        chance=reading.chance,
+        commence_ms=commence_ms,
+        candidate=candidate,
+        books_used=list(reading.books_used),
+        anchored_on_sharp=reading.anchored_on_sharp,
+    )
+
+
 def _unwrap_market(payload) -> dict:
     """The bare market dict from either envelope `mve_legs` accepts --
     `{"market": {...}}` (the singular `GET /markets/{ticker}` shape) or a
@@ -610,6 +801,7 @@ async def check_parlay_text(
     horizon: str = WIDEST_HORIZON,
     max_kalshi_quote_age_ms: Optional[int] = None,
     request_alt_lines: Optional[Callable[[str, str], object]] = None,
+    request_tennis: Optional[Callable[[str, str, str], object]] = None,
     tailed_from: Optional[str] = None,
 ) -> dict:
     """Read a pasted combination's legs off Kalshi and price it. See module
@@ -787,6 +979,10 @@ async def check_parlay_text(
     legs_pairs: list[tuple] = []
     # (sport_key, odds_event_id) -> indexes of legs a fresh alt fetch could price.
     wanted_buys: dict[tuple[str, str], list[int]] = {}
+    # kalshi event ticker -> (sport_key, market_ticker, odds_event_id, indexes)
+    # of the tennis matches a check could buy: one request per MATCH, however
+    # many legs of the slip are on it (#446).
+    tennis_wanted: dict[str, tuple] = {}
 
     for leg in venue_legs:
         event_ticker = str(leg["event_ticker"])
@@ -801,7 +997,39 @@ async def check_parlay_text(
 
         line_source: Optional[str] = None
         alt_books: Optional[list[str]] = None
-        if candidate is None:
+        tennis_books: Optional[list[str]] = None
+        tennis_anchored: Optional[bool] = None
+        label = _leg_label(market_ticker, side, titles)
+        # **Tennis runs before the missing-leg split** (#446, design §1): a
+        # tennis leg is never in the pool, so without this it would read as
+        # "no consensus" whatever the books say. A per-row fact; nothing here
+        # ranks or sizes (ADR 0071).
+        tennis_read = _tennis_read(
+            conn,
+            event_ticker=event_ticker,
+            market_ticker=market_ticker,
+            side=side,
+            label=label,
+            now_ms=now_ms,
+            max_odds_age_ms=max_odds_age_ms,
+        )
+        if tennis_read is not None:
+            commence_ms = tennis_read.commence_ms
+            unknown_reason_code = tennis_read.code
+            chance = tennis_read.chance
+            if tennis_read.candidate is not None:
+                line_source = "tennis"
+                tennis_books = tennis_read.books_used
+                tennis_anchored = tennis_read.anchored_on_sharp
+                usable.append(tennis_read.candidate)
+            if tennis_read.want_buy is not None:
+                sport_key, odds_event_id = tennis_read.want_buy
+                entry = tennis_wanted.setdefault(
+                    event_ticker,
+                    (sport_key, market_ticker, odds_event_id, []),
+                )
+                entry[3].append(len(response_legs))
+        elif candidate is None:
             # **Absent from the pool is never a chance, and never a zero.**
             # `chance` already starts `None` above; restated here, on its own
             # line, because this is the one branch CLAUDE.md's rule
@@ -823,7 +1051,7 @@ async def check_parlay_text(
                 line_source = "main"
                 usable.append(candidate)
 
-        if unknown_reason_code in _ALT_RETRY_CODES:
+        if tennis_read is None and unknown_reason_code in _ALT_RETRY_CODES:
             # **The friend's exact line, from the books' alternate lines
             # (#303).** The same freshness predicate decides it, so an
             # alternate reading is never fresher by a second spelling.
@@ -855,7 +1083,6 @@ async def check_parlay_text(
         if chance is None:
             any_unusable = True
 
-        label = _leg_label(market_ticker, side, titles)
         priced_for_leg.append(candidate)
         response_legs.append(
             {
@@ -877,6 +1104,15 @@ async def check_parlay_text(
                 # sharp anchor, so the screen says whose it is.
                 "line_source": line_source,
                 "alt_books_used": alt_books,
+                # #446: a tennis chance's own provenance. `books_used` is how
+                # many books spoke; `anchored_on_sharp` is NOT a quality mark
+                # (a sharp anchor is the thinner read). The settlement note
+                # rides only on a tennis leg, shown and never a refusal.
+                "books_used": tennis_books,
+                "anchored_on_sharp": tennis_anchored,
+                "settlement_note": (
+                    TENNIS_SETTLEMENT_NOTE if tennis_read is not None else None
+                ),
             }
         )
         leg_details[(event_ticker, market_ticker)] = {
@@ -898,6 +1134,19 @@ async def check_parlay_text(
     )
     for entry, priced in zip(response_legs, priced_for_leg):
         entry.update(_probable_bug_fields(priced, bugs))
+        # A tennis chance has no `fair_prices` row for the reader above, so
+        # rule 1's `too_few_books` is applied here: one book is flagged, shown
+        # and not refused, exactly as a pool leg from one book is.
+        if (
+            entry.get("line_source") == "tennis"
+            and entry.get("chance") is not None
+            and len(entry.get("books_used") or []) < 2
+        ):
+            entry.update({
+                "probable_bug_status": "bug",
+                "probable_bug_codes": ["too_few_books"],
+                "probable_bug_reason": _PROBABLE_BUG_WORDS["too_few_books"],
+            })
 
     # One buy per game, never one per leg, and only when the caller wired a
     # buyer: a check stays a read wherever it is called without one.
@@ -908,6 +1157,36 @@ async def check_parlay_text(
             alt_buys.append(
                 {
                     "odds_event_id": odds_event_id,
+                    "accepted": bool(getattr(submission, "accepted", False)),
+                    "detail": str(getattr(submission, "detail", "")),
+                    "estimated_credits": int(
+                        getattr(submission, "estimated_credits", 0)
+                    ),
+                    "retry_after_ms": int(getattr(submission, "retry_after_ms", 0)),
+                }
+            )
+            if alt_buys[-1]["accepted"]:
+                for i in indexes:
+                    response_legs[i]["unknown_reason_code"] = REASON_BUYING_LINE
+                    response_legs[i]["unknown_reason"] = _reason_words(
+                        REASON_BUYING_LINE
+                    )
+
+    # One request per MATCH (the inbox keys it by the Kalshi event), and only
+    # when a buyer is wired: a check stays a read wherever it has none.
+    # They ride in `alt_buys` (the response contract's one purchases list),
+    # tagged `kind = "tennis"`; `odds_event_id` falls back to the Kalshi event
+    # ticker while the match has no sportsbook id yet.
+    if request_tennis is not None:
+        for event_ticker, (sport_key, market_ticker, odds_event_id, indexes) in (
+            tennis_wanted.items()
+        ):
+            submission = request_tennis(sport_key, event_ticker, market_ticker)
+            alt_buys.append(
+                {
+                    "kind": "tennis",
+                    "kalshi_event_ticker": event_ticker,
+                    "odds_event_id": odds_event_id or event_ticker,
                     "accepted": bool(getattr(submission, "accepted", False)),
                     "detail": str(getattr(submission, "detail", "")),
                     "estimated_credits": int(

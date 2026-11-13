@@ -289,6 +289,30 @@ def register(
                 kind=ondemand.KIND_ALT_LINES,
             )
 
+        def request_tennis(sport_key: str, kalshi_event_ticker: str, market_ticker: str):
+            # One tennis match's h2h (#446, design #439 §7). The runner reads
+            # the event, finds the sportsbook match and buys it into its own
+            # tables; the cost is the same one-market sweep the planner prices.
+            cost = sweep_cost(["h2h"], odds.regions, odds.bookmakers)
+            budget = CreditBudget(
+                write_conn,
+                daily_budget=odds.daily_credit_budget,
+                monthly_budget=odds.monthly_credit_budget,
+                day_start_hour=odds.budget_day_start_utc_hour,
+            )
+            return ondemand.submit(
+                ondemand.inbox_path(app_config.db_path),
+                sport_key=sport_key,
+                odds_event_id=None,
+                now_ms=now,
+                estimated_credits=cost,
+                budget_refusal=budget.refusal_reason(cost, now),
+                day_start_hour=odds.budget_day_start_utc_hour,
+                kind=ondemand.KIND_TENNIS,
+                kalshi_event_ticker=kalshi_event_ticker,
+                market_ticker=market_ticker,
+            )
+
         try:
             return await check_parlay_text(
                 write_conn,
@@ -298,6 +322,7 @@ def register(
                 max_odds_age_ms=staleness.max_odds_age_s * 1000,
                 max_kalshi_quote_age_ms=staleness.max_kalshi_quote_age_s * 1000,
                 request_alt_lines=request_alt_lines if odds is not None else None,
+                request_tennis=request_tennis if odds is not None else None,
                 tailed_from=request.tailed_from,
             )
         except LookupRefused as exc:

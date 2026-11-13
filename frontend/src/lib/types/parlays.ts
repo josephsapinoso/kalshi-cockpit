@@ -590,11 +590,18 @@ export type CheckedParlayLeg = {
   unknown_reason_code: string | null;
   /**
    * Where the chance came from (#303): the books' main line, or their other
-   * lines at this leg's exact number. `null` when there is no chance.
+   * lines at this leg's exact number, or (#446) one tennis match bought on
+   * demand. `null` when there is no chance.
    */
-  line_source: "main" | "alternate" | null;
+  line_source: "main" | "alternate" | "tennis" | null;
   /** The books an `alternate` chance was read from; `null` otherwise. */
   alt_books_used: string[] | null;
+  /** Tennis only (#446): the books the chance was read from. */
+  books_used?: string[] | null;
+  /** Tennis only: whether the consensus anchored on two or more sharp books. */
+  anchored_on_sharp?: boolean | null;
+  /** Tennis only: Kalshi's settlement rule beside the books' unread ones. */
+  settlement_note?: string | null;
   /**
    * Whether the singles screen would call this price a probable bug (#325).
    * `unknown` means the desk has no price for the leg at all, which is never
@@ -608,6 +615,9 @@ export type CheckedParlayLeg = {
 /** One game whose other lines a check asked to buy (#303). */
 export type CheckedParlayAltBuy = {
   odds_event_id: string;
+  /** `tennis` (#446) for a tennis match; absent on an alternate-lines buy. */
+  kind?: "alt_lines" | "tennis";
+  kalshi_event_ticker?: string;
   accepted: boolean;
   /** The inbox's own words, accepted or refused. */
   detail: string;
