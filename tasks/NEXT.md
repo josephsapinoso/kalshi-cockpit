@@ -159,7 +159,16 @@ the channel diagnostic (A17.6/A17.11).
     - the runner's two refusal codes have words;
     - a one-book chance is flagged `too_few_books`.
   - CI then caught the soft-fallback guard. The screen now says "No sharp book behind this price" in accent ink, and `CheckAParlay.tsx` is in `PRICE_SURFACES`.
-- **Not verified on live:** no real tennis check has run. A check writes a `parlay_lookups` row to Joe's record, so it waits for his word. ATP/WTA Finals books exist through ~11-16. Otherwise **#448** (2027-01-18, Australian Open) is the first live look.
+- **First live tennis check run on Joe's "yes" (2026-11-13 ~20:07–20:22Z, writes `parlay_lookups` rows under `outside`).**
+  - The combination was minted by lookup: `KXMVECROSSCATEGORY-S2026XQIKEHDOSRZKV3FQ-NQ3XUAVTZ`, Sabalenka YES + Andreeva YES (WTA Finals).
+  - **It found a live bug first (`d73f9b62`).** Combination ids are not hex. The ticker matcher refused this market, and the 2026-11-11 captured one, as "a whole series", so any combination with an id outside A–F could not be pasted. Fixed: the S group now needs a four-digit year.
+  - **The reading:**
+    - Sabalenka 68%, Andreeva 74%, each from `betfair_ex_eu` + `matchbook`, anchored on sharp.
+    - Joint 50.4c against Kalshi's ask of 51.6c (2.4% hold).
+    - Andreeva then went `game_started` at the book's 20:17Z, correctly.
+  - **Ledger** (`credits-by-sport`): 2 credits. That is 4 `tennis_wta_finals` calls (2 paid h2h, 2 free event lists) plus 2 free `/sports` reads, all at 20:10:54.
+  - **The first pair of requests (20:06:52) was never served.** The deploy restart reset the watermark and its first full pass outlived them. The second pair took 94 s from tap to served.
+  - **Labels were raw tickers** (no `kalshi_markets` title for tennis). Fixed in `1a3113f4` and the following commit: "Aryna Sabalenka to beat Elina Svitolina".
 - **What (C) really covers** (partner, checked against #331):
   - the feed keys tennis per tournament (Slams, 1000s, some 500s, Finals);
   - there is no Challenger key;
@@ -170,7 +179,7 @@ the channel diagnostic (A17.6/A17.11).
 ### Still open (adds to the list below; #445 and #446 are closed)
 
 1. #447 — Joe: Challenger legs, accept or price a second source.
-2. #448 — 2027-01-18: the first Australian Open tennis check on live.
+2. #448 — 2027-01-18: the first Australian Open tennis check on live (the November one is done; this is the second look, on a Slam).
 3. #347 — the dry engine's no-op work and dead routes (partner: leads the next session if the frontier stays thin).
 
 ## 2026-11-13 (hundred-and-twelfth session) — laptop: Joe's (A) to #442 done; the tennis odds are captured (#439); a late-added book proven fresh (#436 closed); refusal read (#401 and #360 closed); Dependabot clean

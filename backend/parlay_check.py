@@ -661,9 +661,15 @@ def _tennis_read(
     link = tennis_readings.read_link(conn, event_ticker, now_ms=now_ms)
     if link is None:
         return _TennisRead(code=REASON_TENNIS_NO_READING, want_buy=(sport_key, None))
+    # Named by its players as soon as the link knows them, refused or not.
+    player = link.player_for(market_ticker)
+    if player is not None and label in (market_ticker, f"NO -- {market_ticker}"):
+        label = _tennis_label(player, link.players, side)
     if not link.linked:
         # A refusal that still stands, in its own words.
-        return _TennisRead(code=link.refusal_reason, commence_ms=link.commence_ms)
+        return _TennisRead(
+            code=link.refusal_reason, commence_ms=link.commence_ms, label=label
+        )
 
     rows = tennis_readings.latest_reading_rows(conn, link.odds_event_id)
     if not rows:
@@ -671,6 +677,7 @@ def _tennis_read(
             code=REASON_TENNIS_NO_READING,
             commence_ms=link.commence_ms,
             want_buy=(sport_key, link.odds_event_id),
+            label=label,
         )
     # The EARLIER of the link's commence and the newest reading's: a book
     # that moved the match forward ("followed by" scheduling) must not let an
@@ -682,16 +689,12 @@ def _tennis_read(
     commence_ms = min(stamps_c) if stamps_c else None
     if commence_ms is None:
         # Unreadable resolves to a refusal, never to a made-up "now".
-        return _TennisRead(code=tennis.UNREADABLE_EVENT)
+        return _TennisRead(code=tennis.UNREADABLE_EVENT, label=label)
     if commence_ms <= now_ms:
-        return _TennisRead(code=REASON_GAME_STARTED, commence_ms=commence_ms)
+        return _TennisRead(code=REASON_GAME_STARTED, commence_ms=commence_ms, label=label)
 
-    player = link.player_for(market_ticker)
     if player is None:
         return _TennisRead(code=tennis.UNREADABLE_EVENT, commence_ms=commence_ms)
-    words = _tennis_label(player, link.players, side)
-    if label in (market_ticker, f"NO -- {market_ticker}"):
-        label = words
     reading = tennis.price_leg(rows, link.players, side, player)
     if reading.chance is None:
         return _TennisRead(code=reading.reason, commence_ms=commence_ms, label=label)

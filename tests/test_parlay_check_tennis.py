@@ -318,3 +318,10 @@ class TestTheLegIsNamedByItsPlayers:
         _store_link_and_reading(conn)
         _, legs = await _check(conn, [_tennis_leg(AND_T, "no"), _ml_leg(conn, FRESH_NOW)])
         assert legs[(AND_T, "no")]["label"] == "Karolina Muchova to beat Mirra Andreeva"
+
+    async def test_a_started_leg_is_still_named(self, conn):
+        _store_link_and_reading(conn)
+        _, legs = await _check(conn, [_tennis_leg()], now=STARTED_NOW)
+        leg = legs[(AND_T, "yes")]
+        assert leg["unknown_reason_code"] == "game_started"
+        assert leg["label"] == "Mirra Andreeva to beat Karolina Muchova"
