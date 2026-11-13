@@ -139,6 +139,31 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-11-13 (hundred-and-twelfth session) — laptop: Joe's (A) to #442 done; the tennis odds are captured (#439); a late-added book proven fresh (#436 closed); refusal read (#401 and #360 closed); Dependabot clean
+
+- **Dependabot: 0 open alerts.** `pip-audit -r requirements.txt` and `npm audit --omit=dev` found nothing. `cryptography` is 50.0.1 in the venv (the pin is `~=50.0`). GitHub's advisories for it all close at 50.0.0 or below. The running container's version was not read.
+- **#439, the Odds side (`02e9f96c`, 2 credits from the laptop, ABSENT from `api_credits`):**
+  - The feed keys tennis **per tournament** (53 keys) and has **no Challenger key at all**. A Challenger leg can never get a desk reading.
+  - Today only `tennis_atp_finals` and `tennis_wta_finals` are active.
+  - One tournament's h2h costs 1 credit, as measured, and returns every match in that tournament.
+  - The 4 ATP Finals events listed have **0 books**. The WTA ones have 9, 9 and 5 books, and **Pinnacle is on none**.
+  - Both of #441's main-tour Kalshi matches are in the feed under full names. The design notes are on #439. The link design is next.
+- **#436 closed (`bb38b489`).**
+  - `capture_ws_fixture.py --late-add`: a subscribe sent after 20 deltas drew `ok` in 66 ms and a snapshot in 67 ms, on the shared sid with the sequence unbroken.
+  - A replay test is in `tests/test_ws_client.py`. Removing the snapshot turns it red.
+  - On live, `/api/stream/books` for a tennis market with no engine row showed a 72c ask in 663 ms.
+  - The script now writes through `write_capture`.
+- **#401 and #360 closed (`734e86db`).**
+  - `credits-day` was read for 11-02..11-12: **no `refused` row**. The heaviest day was **11-02 at 750 of 800**, and the vendor's remaining count never fell below 14,111.
+  - One `failed` NFL call (11-06 00:00Z): the vendor answered with an error and appears not to have billed it, so our ledger is 3 over.
+  - measurement-skeptic: PASS WITH FIXES, all nine applied. The main fix: `decide_sweeps` cost refusals write `skipped`, or nothing, so "no refused row" is not "nothing declined".
+- `flyctl` login renewed by Joe this session.
+
+### Still open (adds to the list below; #436, #401 and #360 are closed, #442 done)
+
+1. #439 — the link design on the captured fixtures. Main tour only; Challenger refused by name.
+2. #438 — Joe: read the Fly invoices, then run the home rehearsal on the desktop.
+
 ## 2026-11-13 (hundred-and-eleventh session) — Kalshi's tennis payloads captured (#441); #439's "no caller" fact corrected; Joe answered #442 (A): live reads go to a laptop session
 
 - **Ran from a cloud container.** It cannot reach the live database, Fly, the Odds API key or the Dependabot API (403); Kalshi's public API answers 200. `partner` judged that little of the queue could run from here and scoped the session to the one lane that could.
