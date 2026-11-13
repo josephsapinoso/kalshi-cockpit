@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     if args.check:
-        have = args.out.read_bytes().decode() if args.out.exists() else None
+        have = args.out.read_text(encoding="utf-8") if args.out.exists() else None
         if have != text:
             print(
                 f"{args.out} differs from {args.toml}; re-run without --check",

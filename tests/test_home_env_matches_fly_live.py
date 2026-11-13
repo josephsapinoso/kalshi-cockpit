@@ -40,7 +40,7 @@ def _scratch(tmp_path: Path, env_lines: str) -> Path:
 
 class TestHomeEnvMatchesFlyLive:
     def test_committed_file_equals_fresh_generation(self):
-        assert COMMITTED.read_bytes().decode() == gen.generate(TOML)
+        assert COMMITTED.read_text(encoding="utf-8") == gen.generate(TOML)
 
     def test_every_env_key_present_with_same_value(self):
         env = tomllib.loads(TOML.read_text(encoding="utf-8"))["env"]
