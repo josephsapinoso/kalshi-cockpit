@@ -1,0 +1,238 @@
+{
+ "captured_ms": 1794595524999,
+ "credit_headers": {
+  "x-requests-last": "1",
+  "x-requests-remaining": "14009",
+  "x-requests-used": "5991"
+ },
+ "event": {
+  "away_team": "Elina Svitolina",
+  "bookmakers": [
+   {
+    "key": "betfair_ex_eu",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-13T18:45:15Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.51
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.92
+       }
+      ]
+     },
+     {
+      "key": "h2h_lay",
+      "last_update": "2026-11-13T18:45:15Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.52
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.94
+       }
+      ]
+     }
+    ],
+    "title": "Betfair"
+   },
+   {
+    "key": "draftkings",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-13T18:45:14Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.45
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.8
+       }
+      ]
+     }
+    ],
+    "title": "DraftKings"
+   },
+   {
+    "key": "sport888",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-13T18:44:57Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.44
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.75
+       }
+      ]
+     }
+    ],
+    "title": "888sport"
+   },
+   {
+    "key": "fanatics",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-13T18:44:37Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.45
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.75
+       }
+      ]
+     }
+    ],
+    "title": "Fanatics"
+   },
+   {
+    "key": "fanduel",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-13T18:44:58Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.45
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.8
+       }
+      ]
+     }
+    ],
+    "title": "FanDuel"
+   },
+   {
+    "key": "betmgm",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-13T18:44:59Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.48
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.6
+       }
+      ]
+     }
+    ],
+    "title": "BetMGM"
+   },
+   {
+    "key": "matchbook",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-13T18:45:15Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.51
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.94
+       }
+      ]
+     },
+     {
+      "key": "h2h_lay",
+      "last_update": "2026-11-13T18:45:15Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.52
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.96
+       }
+      ]
+     }
+    ],
+    "title": "Matchbook"
+   },
+   {
+    "key": "bovada",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-13T18:45:18Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.45
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.8
+       }
+      ]
+     }
+    ],
+    "title": "Bovada"
+   },
+   {
+    "key": "williamhill_us",
+    "markets": [
+     {
+      "key": "h2h",
+      "last_update": "2026-11-13T18:40:38Z",
+      "outcomes": [
+       {
+        "name": "Aryna Sabalenka",
+        "price": 1.45
+       },
+       {
+        "name": "Elina Svitolina",
+        "price": 2.65
+       }
+      ]
+     }
+    ],
+    "title": "Caesars"
+   }
+  ],
+  "commence_time": "2026-11-13T21:30:00Z",
+  "home_team": "Aryna Sabalenka",
+  "id": "29a6e4e35a3b385e9666473ad68f2084",
+  "sport_key": "tennis_wta_finals",
+  "sport_title": "WTA Finals"
+ },
+ "request": {
+  "endpoint": "https://api.the-odds-api.com/v4/sports/tennis_wta_finals/events/29a6e4e35a3b385e9666473ad68f2084/odds",
+  "method": "GET",
+  "note": "Credential omitted. Laptop spend, ABSENT from api_credits (#439).",
+  "params": {
+   "bookmakers": "pinnacle,matchbook,betfair_ex_eu,fanduel,draftkings,williamhill_us,fanatics,sport888,bovada,betmgm",
+   "event_id": "29a6e4e35a3b385e9666473ad68f2084",
+   "markets": "h2h",
+   "oddsFormat": "decimal",
+   "sport": "tennis_wta_finals"
+  }
+ }
+}

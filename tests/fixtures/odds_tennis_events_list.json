@@ -1,0 +1,42 @@
+{
+ "captured_ms": 1794595524888,
+ "credit_headers": {
+  "x-requests-last": "0",
+  "x-requests-remaining": "14010",
+  "x-requests-used": "5990"
+ },
+ "events": [
+  {
+   "away_team": "Karolina Muchova",
+   "commence_time": "2026-11-13T20:00:00Z",
+   "home_team": "Mirra Andreeva",
+   "id": "6b92a67eab021047017da9d42e1e1fae",
+   "sport_key": "tennis_wta_finals",
+   "sport_title": "WTA Finals"
+  },
+  {
+   "away_team": "Elina Svitolina",
+   "commence_time": "2026-11-13T21:30:00Z",
+   "home_team": "Aryna Sabalenka",
+   "id": "29a6e4e35a3b385e9666473ad68f2084",
+   "sport_key": "tennis_wta_finals",
+   "sport_title": "WTA Finals"
+  },
+  {
+   "away_team": "Mirra Andreeva",
+   "commence_time": "2026-11-14T15:00:00Z",
+   "home_team": "Jessica Pegula",
+   "id": "53d87628f7d7ae2c16b9b10ab1be03ab",
+   "sport_key": "tennis_wta_finals",
+   "sport_title": "WTA Finals"
+  }
+ ],
+ "request": {
+  "endpoint": "https://api.the-odds-api.com/v4/sports/tennis_wta_finals/events",
+  "method": "GET",
+  "note": "Credential omitted. Free endpoint.",
+  "params": {
+   "sport": "tennis_wta_finals"
+  }
+ }
+}

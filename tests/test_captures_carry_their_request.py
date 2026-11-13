@@ -487,6 +487,24 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
         endpoint_in=(),
         how="WebSocket late-add recording (#436) by scripts/capture_ws_fixture.py --late-add: the `request` block names the socket and the initial subscription, and `sent` holds every subscribe command verbatim with its time, the late one last.",
     ),
+    "kalshi_tennis_single_event.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("event_ticker", "with_nested_markets"),
+        endpoint_in=(),
+        how="Public Kalshi GET /events/{event_ticker} (the single-event shape: `markets` sits beside `event`), written by scripts/capture_tennis_link_fixtures.py (#439).",
+    ),
+    "odds_tennis_events_list.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("sport",),
+        endpoint_in=(),
+        how="Odds API /v4/sports/{key}/events (free), written by scripts/capture_tennis_link_fixtures.py (#439); credential omitted.",
+    ),
+    "odds_tennis_event_h2h.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("sport", "event_id", "bookmakers", "markets"),
+        endpoint_in=(),
+        how="Odds API /v4/sports/{key}/events/{id}/odds, h2h, ten named bookmakers, one object, written by scripts/capture_tennis_link_fixtures.py (#439); credential omitted.",
+    ),
     "kalshi_tennis_mve_collection.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("collection_ticker",),
@@ -862,6 +880,11 @@ UPGRADED_WRITERS: dict[str, tuple[str, ...]] = {
     ),
     "capture_total_subtitles.py": ("events_totals_by_series.json",),
     "capture_ws_fixture.py": ("ws_orderbook_stream.json", "ws_orderbook_late_add.json"),
+    "capture_tennis_link_fixtures.py": (
+        "kalshi_tennis_single_event.json",
+        "odds_tennis_events_list.json",
+        "odds_tennis_event_h2h.json",
+    ),
     "capture_tennis_odds_fixture.py": (
         "odds_tennis_sports.json",
         "odds_tennis_atp_finals_h2h.json",
