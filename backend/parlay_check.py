@@ -185,18 +185,22 @@ WIDEST_HORIZON = HORIZON_LADDER[-1]
 #: is USABLE is a question `_match_ticker` answers, not this pattern.
 _TICKER_PATTERN = re.compile(r"KXMVE[A-Za-z0-9._-]+", re.IGNORECASE)
 
-#: A market-shaped tail: `-S<hex>-<hex>`, e.g.
-#: `-S2026B3D8BDECEA6-930882E712B`. `S` is never itself a hex digit, so this
-#: can only match the LAST two hyphen-delimited groups of a token, and a
-#: token ending in a plain hex group (no `S` prefix on it) cannot also match
-#: this -- the two shapes are structurally exclusive at the end of a string.
-_MARKET_TAIL_RE = re.compile(r"-S[0-9A-F]+-[0-9A-F]+$")
+#: A market-shaped tail: `-S<year><id>-<id>`, e.g.
+#: `-S2026B3D8BDECEA6-930882E712B`.
+#:
+#: **The ids are NOT hex.** This said `-S<hex>-<hex>` until 2026-11-13, and a
+#: market Kalshi minted that day was `...-S2026XQIKEHDOSRZKV3FQ-NQ3XUAVTZ` --
+#: refused as "a whole series", as was the captured
+#: `-S2026TMAZKNONLIHZWU3S-6F7ME5PU7` (`combo_settled_market_with_legs.json`,
+#: 2026-11-11). A hex-looking id was only ever the alphabet's luck. What
+#: actually tells the shapes apart is the four-digit year after `S`: without
+#: it, a collection ticker like `KXMVECROSSCATEGORY-SHARD1-R` would read as
+#: a market.
+_MARKET_TAIL_RE = re.compile(r"-S\d{4}[0-9A-Z]*-[0-9A-Z]+$")
 
-#: An event-shaped tail: `-S<hex>` with nothing after it. Anchored the same
-#: way, so a market-shaped token (which ends in a further `-<hex>` group)
-#: never matches this one too -- check market first anyway, since order
-#: matters if either regex is ever loosened.
-_EVENT_TAIL_RE = re.compile(r"-S[0-9A-F]+$")
+#: An event-shaped tail: `-S<year><id>` with nothing after it. A market-shaped
+#: token is checked first, so its last group never reaches this one.
+_EVENT_TAIL_RE = re.compile(r"-S\d{4}[0-9A-Z]*$")
 
 #: Reasons a leg absent from the candidate pool cannot be priced, spelled the
 #: same way `resolve_requested_legs` (`parlays.py:2810`) tells Joe about a

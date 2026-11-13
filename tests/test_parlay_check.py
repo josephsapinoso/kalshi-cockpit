@@ -281,6 +281,27 @@ class TestMatchTicker:
             f"{REAL_MARKET_TICKER}--"
         ) == ("market", REAL_MARKET_TICKER)
 
+    def test_a_market_id_outside_hex_is_still_a_market(self):
+        """Captured 2026-11-11 (`combo_settled_market_with_legs.json`) and
+        minted on live 2026-11-13: neither tail is hex, and both were refused
+        as a whole series until the tail regexes stopped assuming hex."""
+        import json
+        from pathlib import Path
+
+        raw = (Path(__file__).parent / "fixtures" /
+               "combo_settled_market_with_legs.json").read_text(encoding="utf-8")
+        captured = "KXMVECROSSCATEGORY-S2026TMAZKNONLIHZWU3S-6F7ME5PU7"
+        assert captured in raw and json.loads(raw)
+        assert parlay_check._match_ticker(captured) == ("market", captured)
+        minted = "KXMVECROSSCATEGORY-S2026XQIKEHDOSRZKV3FQ-NQ3XUAVTZ"
+        assert parlay_check._match_ticker(minted.lower()) == ("market", minted)
+        assert parlay_check._match_ticker("KXMVECROSSCATEGORY-S2026XQIKEHDOSRZKV3FQ") == (
+            "event", "KXMVECROSSCATEGORY-S2026XQIKEHDOSRZKV3FQ")
+
+    def test_a_collection_ticker_is_not_a_market(self):
+        # `-SHARD1-R` has an S group and a tail; only the year rules it out.
+        assert parlay_check._match_ticker("KXMVECROSSCATEGORY-SHARD1-R")[0] == "series"
+
     def test_extract_ticker_only_answers_for_a_market_shaped_token(self):
         # The legacy single-ticker helper: `None` on an event or series
         # match, since neither IS a market ticker.
