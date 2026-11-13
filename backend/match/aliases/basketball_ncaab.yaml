@@ -5,7 +5,7 @@
 # `scripts/capture_team_names.py --league ncaab` against 177 Kalshi
 # `KXNCAAMBGAME` events and 62 Odds API fixtures. With no aliases: 52 linked,
 # 10 refused on names. With this file: 61 linked, 1 refused (Tennessee St. vs
-# Tennessee, below). 97 had no book fixture at their kickoff, 18 had no fixture
+# Tennessee); 62 linked, 0 refused since #434 (2026-11-13). 97 had no book fixture at their kickoff, 18 had no fixture
 # at that kickoff sharing either side (not carried). Every pair below was read
 # off that run's output, both halves; none is from memory. A team absent from
 # this file is still not proof it needs none -- 62 fixtures is two weeknight evenings.
@@ -29,9 +29,9 @@ teams:
   Mount St. Mary's: Mt. St. Mary's Mountaineers
   Southeast Missouri St.: SE Missouri St Redhawks
   Louisiana-Monroe: UL Monroe Warhawks
-  # NOT FIXABLE HERE: Tennessee St. vs Tennessee (2026-11-13). "Tennessee" is
-  # a token prefix of BOTH book names, and an alias in this file only ADDS a
-  # match (`linker._matches` test 2), it never removes the prefix match
-  # (test 3). So the pair has no bijection whatever is written here, and the
-  # game is refused -- which is the safe failure. Making an override exclusive
-  # is a linker change for every league, not an alias.
+  # "Tennessee" is a token prefix of three book names (Tennessee St Tigers,
+  # Tennessee Tech Golden Eagles, Tennessee Volunteers), so Tennessee St. at
+  # Tennessee had no bijection. Fixed 2026-11-13 (#434) by making an override
+  # EXCLUSIVE in `linker._matches`: this entry pins Kalshi's bare "Tennessee"
+  # to the Volunteers and nothing else. Read off the 2026-11-12 capture.
+  Tennessee: Tennessee Volunteers

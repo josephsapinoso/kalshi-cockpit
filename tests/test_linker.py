@@ -134,6 +134,20 @@ class TestTeamResolution:
         )
         assert result.matched
 
+    def test_an_override_is_exclusive_and_stops_the_prefix_match(self):
+        """#434. A Kalshi name with an alias entry matches that book name and
+        no other, so the prefix rule cannot also claim the other school."""
+        from backend.match.linker import _matches
+
+        aliases = TeamAliases(
+            sport_key="test",
+            mapping={normalise("Tennessee"): normalise("Tennessee Volunteers")},
+        )
+        assert _matches("Tennessee", "Tennessee Volunteers", aliases)
+        assert not _matches("Tennessee", "Tennessee St Tigers", aliases)
+        # Without the entry the prefix rule claims both: the ambiguity #434 fixed.
+        assert _matches("Tennessee", "Tennessee St Tigers", TeamAliases(sport_key="test"))
+
 
 class TestRefusal:
     """Ambiguity refuses. This is the whole point of the module."""

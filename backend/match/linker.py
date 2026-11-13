@@ -233,10 +233,19 @@ def _matches(kalshi_name: str, book_name: str, aliases: TeamAliases) -> bool:
     if k == b:
         return True
 
-    # 2. Explicit override.
+    # 2. Explicit override, and it is EXCLUSIVE (#434, 2026-11-13). A Kalshi
+    #    name with an entry in the alias file matches that one book name and
+    #    nothing else: the token-prefix test below never runs for it. Before
+    #    #434 an override only ADDED a match, so "Tennessee" kept
+    #    prefix-matching "Tennessee St Tigers" and "Tennessee Tech Golden
+    #    Eagles" beside "Tennessee Volunteers", and Tennessee St. at Tennessee
+    #    had no bijection whatever the file said. Every alias file's VALUE is
+    #    the book's full string, so an exact comparison is the whole test; an
+    #    override that misspells the book's name now refuses the game rather
+    #    than being rescued by a prefix -- the safe failure.
     override = aliases.resolve(kalshi_name)
-    if override and override == b:
-        return True
+    if override:
+        return override == b
 
     # 3. Token-prefix. Kalshi abbreviates to the city or a truncation of it:
     #    "Houston" -> "Houston Astros", "New York G" -> "New York Giants".
