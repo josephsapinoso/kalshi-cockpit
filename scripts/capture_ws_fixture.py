@@ -4,6 +4,15 @@ Run:  python -m scripts.capture_ws_fixture [--seconds 90] [--tickers T1,T2]
 
 Read-only. Subscribes, records, disconnects. Places nothing.
 
+Late-add mode (#436):  python -m scripts.capture_ws_fixture --tickers A,B     --late-add C --out ws_orderbook_late_add.json
+
+subscribes A and B, waits until at least one `orderbook_delta` has arrived and
+`--late-after` seconds have passed, then sends the same per-ticker `subscribe`
+`KalshiWebSocket.add_tickers` sends on an open connection. Every command sent
+is recorded in `sent`, with its time, beside the frames, so a replay can
+show the late subscribe went out while deltas were already flowing, and
+whether a snapshot for C followed.
+
 Why this fixture is the most important one in the repo
 ------------------------------------------------------
 The predecessor project's `apply_snapshot` read `data["yes"]` while Kalshi sent
@@ -44,6 +53,7 @@ import websockets
 from backend.config import KalshiConfig
 from backend.kalshi.auth import KalshiAuth
 from backend.kalshi.rest import KalshiRestClient
+from scripts.capture_envelope import request_envelope, write_capture
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 
@@ -97,11 +107,18 @@ async def busiest_tickers(api: KalshiRestClient, limit: int) -> list[str]:
     return chosen
 
 
-async def capture(config: KalshiConfig, tickers: list[str], seconds: float) -> dict:
+async def capture(
+    config: KalshiConfig,
+    tickers: list[str],
+    seconds: float,
+    late_add: Optional[str] = None,
+    late_after: float = 10.0,
+) -> dict:
     auth = KalshiAuth(config.api_key, config.private_key_path)
     headers = auth.get_ws_headers()
 
     frames: list[dict[str, Any]] = []
+    sent: list[dict[str, Any]] = []
     counts: collections.Counter = collections.Counter()
     started = time.time()
 
@@ -110,12 +127,18 @@ async def capture(config: KalshiConfig, tickers: list[str], seconds: float) -> d
         config.ws_url, additional_headers=headers, ssl=context,
         open_timeout=20, close_timeout=5,
     ) as socket:
-        for index, ticker in enumerate(tickers, start=1):
-            await socket.send(json.dumps({
-                "id": index,
+        async def subscribe(command_id: int, ticker: str) -> None:
+            command = {
+                "id": command_id,
                 "cmd": "subscribe",
                 "params": {"channels": ["orderbook_delta"], "market_tickers": [ticker]},
-            }))
+            }
+            await socket.send(json.dumps(command))
+            sent.append({"sent_ms": int(time.time() * 1000), "command": command})
+
+        for index, ticker in enumerate(tickers, start=1):
+            await subscribe(index, ticker)
+        late_sent = late_add is None
 
         while time.time() - started < seconds:
             remaining = seconds - (time.time() - started)
@@ -132,12 +155,21 @@ async def capture(config: KalshiConfig, tickers: list[str], seconds: float) -> d
                 continue
 
             counts[parsed.get("type", "?")] += 1
+            if (
+                not late_sent
+                and counts["orderbook_delta"] > 0
+                and time.time() - started >= late_after
+            ):
+                frames.append({"received_ms": received_ms, "frame": parsed})
+                await subscribe(len(tickers) + 1, late_add)
+                late_sent = True
+                continue
             # Recorded verbatim. No field is renamed, normalised or dropped --
             # the point is to preserve what Kalshi sent, including anything
             # this codebase does not yet know to look for.
             frames.append({"received_ms": received_ms, "frame": parsed})
 
-    return {"frames": frames, "counts": dict(counts)}
+    return {"frames": frames, "counts": dict(counts), "sent": sent}
 
 
 def summarise(frames: list[dict]) -> dict:
@@ -172,6 +204,9 @@ async def main() -> int:
     parser.add_argument("--seconds", type=float, default=90.0)
     parser.add_argument("--tickers", default=None, help="comma-separated override")
     parser.add_argument("--max-tickers", type=int, default=12)
+    parser.add_argument("--late-add", default=None, help="ticker to subscribe mid-stream")
+    parser.add_argument("--late-after", type=float, default=10.0)
+    parser.add_argument("--out", default="ws_orderbook_stream.json")
     args = parser.parse_args()
 
     config = KalshiConfig.load()
@@ -188,7 +223,7 @@ async def main() -> int:
         return 1
 
     print(f"\nSubscribing to {len(tickers)} tickers for {args.seconds:.0f}s...")
-    result = await capture(config, tickers, args.seconds)
+    result = await capture(config, tickers, args.seconds, args.late_add, args.late_after)
     frames = result["frames"]
 
     print(f"\n{len(frames)} frames captured")
@@ -212,12 +247,20 @@ async def main() -> int:
             "here are Kalshi's, not this codebase's beliefs about them."
         ),
         "tickers": tickers,
+        "request": request_envelope(
+            method="WS subscribe",
+            endpoint=config.ws_url,
+            params={"channels": "orderbook_delta", "market_tickers": ",".join(tickers)},
+            note="One subscribe per ticker; every command sent is in `sent`.",
+        ),
+        "late_add": args.late_add,
+        "sent": result["sent"],
         "counts": result["counts"],
         "shape": shape,
         "frames": frames,
     }
-    destination = FIXTURES / "ws_orderbook_stream.json"
-    destination.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    destination = FIXTURES / args.out
+    write_capture(destination, payload, indent=1)
     print(f"\nWrote {destination} ({destination.stat().st_size:,} bytes)")
     return 0
 

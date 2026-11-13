@@ -481,6 +481,12 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
         endpoint_in=(),
         how="Odds API /v4/sports?all=true (free) filtered client-side to keys starting 'tennis', written by scripts/capture_tennis_odds_fixture.py (#439).",
     ),
+    "ws_orderbook_late_add.json": RecordsItsRequest(
+        params_in=("request", "sent"),
+        param_names=("channels", "market_tickers"),
+        endpoint_in=(),
+        how="WebSocket late-add recording (#436) by scripts/capture_ws_fixture.py --late-add: the `request` block names the socket and the initial subscription, and `sent` holds every subscribe command verbatim with its time, the late one last.",
+    ),
     "kalshi_tennis_mve_collection.json": RecordsItsRequest(
         params_in=("request",),
         param_names=("collection_ticker",),
@@ -820,7 +826,6 @@ LEGACY_WRITERS: dict[str, tuple[str, ...]] = {
     "capture_prop_fixture.py": ("events_mlb_props_nested.json",),
     "capture_series_fixture.py": ("series_fee_fields.json",),
     "capture_settled_markets.py": ("markets_settled.json",),
-    "capture_ws_fixture.py": ("ws_orderbook_stream.json",),
     "measure_occurrence_datetime.py": ("occurrence_datetime_probe.json",),
     "read_own_rfqs.py": ("combo_rfq_list_own.json",),
     "redact_captures.py": (
@@ -856,6 +861,7 @@ UPGRADED_WRITERS: dict[str, tuple[str, ...]] = {
         "events_ncaamb_game.json",
     ),
     "capture_total_subtitles.py": ("events_totals_by_series.json",),
+    "capture_ws_fixture.py": ("ws_orderbook_stream.json", "ws_orderbook_late_add.json"),
     "capture_tennis_odds_fixture.py": (
         "odds_tennis_sports.json",
         "odds_tennis_atp_finals_h2h.json",

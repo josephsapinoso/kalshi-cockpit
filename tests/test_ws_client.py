@@ -705,3 +705,60 @@ class TestAddTickers:
         assert ws._ws is None and ws._initial_subscribed is False
         await ws.add_tickers(["KXMLBGAME-D"])
         assert len(conn.sent) == sent_before
+
+
+LATE_ADD_FIXTURE = Path(__file__).parent / "fixtures" / "ws_orderbook_late_add.json"
+
+
+class TestALateAddOnAnOpenConnectionGetsAFreshBook:
+    """#436: a subscribe sent while deltas are flowing is answered with a snapshot.
+
+    `ws_orderbook_late_add.json` was captured 2026-11-13 by
+    `scripts/capture_ws_fixture.py --late-add`: three NBA tickers subscribed,
+    then, after 20 deltas, the same per-ticker `subscribe` `add_tickers` sends
+    on an open connection. Kalshi answered `ok` in 66 ms and an
+    `orderbook_snapshot` for the added market in 67 ms, on the shared sid with
+    the connection sequence unbroken.
+
+    **What this does not establish.** One add, one connection, one evening,
+    four tickers: nothing about error 26's market cap, nothing about an add
+    landing mid-resync, and nothing about a market with an empty book.
+    """
+
+    @pytest.fixture(scope="class")
+    def late(self):
+        return json.loads(LATE_ADD_FIXTURE.read_text(encoding="utf-8"))
+
+    def test_the_capture_sent_the_add_while_deltas_were_already_flowing(self, late):
+        late_sent_ms = late["sent"][-1]["sent_ms"]
+        assert late["sent"][-1]["command"]["params"]["market_tickers"] == [late["late_add"]]
+        deltas_before = [
+            r for r in late["frames"]
+            if r["frame"].get("type") == "orderbook_delta" and r["received_ms"] < late_sent_ms
+        ]
+        assert len(deltas_before) >= 1
+
+    async def test_the_added_book_becomes_priceable_from_the_replayed_stream(
+        self, tmp_path, monkeypatch, late
+    ):
+        ws = _client(tmp_path, monkeypatch, list(late["tickers"]))
+        late_sent_ms = late["sent"][-1]["sent_ms"]
+        added = late["late_add"]
+        before = [r["frame"] for r in late["frames"] if r["received_ms"] < late_sent_ms]
+        after = [r["frame"] for r in late["frames"] if r["received_ms"] >= late_sent_ms]
+
+        for frame in before:
+            await ws._handle(json.dumps(frame))
+        # No socket: `add_tickers` registers the book and sends nothing; the
+        # recorded `sent` entry is the command it would have sent.
+        assert await ws.add_tickers([added]) == [added]
+        assert ws.books[added].ask_for("yes") is None
+
+        for frame in after:
+            await ws._handle(json.dumps(frame))
+
+        assert not ws._pending_resync
+        book = ws.books[added]
+        assert not book.invalid
+        assert book.ask_for("yes") is not None
+        assert book.ask_for("no") is not None
