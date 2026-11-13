@@ -808,8 +808,11 @@ def count_ranges(record: dict, population: str = "all") -> int:
     for league in leg_kind_block.get("leagues") or []:
         blocks.extend(k.get("expected") for k in league["kinds"])
     shape = record.get("by_shape") or {}
-    blocks.extend(shape.get("price_bands", []))
     legs_view = (shape.get("off_desk") or {}) if off else shape
+    # Since #432 C the off-desk view carries its own bands; an older payload
+    # without them falls back to the whole record's, as the page does.
+    blocks.extend(legs_view.get("price_bands") or shape.get("price_bands", []))
+    blocks.append(legs_view.get("total"))
     blocks.extend(legs_view.get("leg_counts", []))
     blocks.extend((legs_view.get("same_game_split") or {}).get("cells", []))
     total = 0
@@ -1201,15 +1204,63 @@ def _shape_legs(
     return out
 
 
+#: #432 D: the "top k winners" shares served beside a total.
+TOP_WINNER_COUNTS = (1, 3, 5)
+#: How many top winners the "had they lost" figure takes out.
+TOP_WINNERS_REMOVED = 3
+
+
+def top_winners_block(
+    winners: list[tuple[int, int]], *, total_net_tenths: int
+) -> dict[str, Any]:
+    """How much of what the winners paid came from the biggest few (#432 D).
+
+    `winners` is one `(payout_tenths, net_tenths)` per WON combination,
+    payout being stake + net + fee: what the win paid out. Of
+    those, the ones that netted above zero are what "the winners paid";
+    `shares` gives what the top 1, 3 and 5 of them paid, only where that many
+    exist and `k` is fewer than all of them (the top 5 of 5 would only repeat
+    the total), in tenths beside the total. No percentage: the strip divides
+    nothing and prints no `%` (`test_bets_shape_strip`), and two dollar
+    figures side by side say the same thing. `net_if_top_lost_tenths` is the
+    population's net had the top three lost instead: each of them loses its
+    stake and still pays its fee, so the net drops by that ticket's whole
+    payout (stake + net + fee).
+
+    Descriptive only. It names no ticket and sorts nothing on the screen:
+    the sort is internal, to find the biggest, and only sums leave here.
+    """
+    by_net = sorted(((n, pay) for pay, n in winners if n > 0), reverse=True)
+    paid = [n for n, _s in by_net]
+    paid_total = _sum_ints(paid)
+    shares = [
+        {"top": k, "net_tenths": _sum_ints(paid[:k])}
+        for k in TOP_WINNER_COUNTS
+        if k < len(paid)
+    ]
+    if len(by_net) >= TOP_WINNERS_REMOVED:
+        removed = _sum_ints([payout for _n, payout in by_net[:TOP_WINNERS_REMOVED]])
+        net_if = total_net_tenths - removed
+    else:
+        net_if = None
+    return {
+        "winners": len(paid),
+        "winners_net_tenths": paid_total,
+        "shares": shares,
+        "removed": TOP_WINNERS_REMOVED,
+        "net_if_top_lost_tenths": net_if,
+    }
+
+
 def by_shape_summary(
     conn: sqlite3.Connection,
-    shape_rows: list[tuple[str, int, bool, int, int]],
+    shape_rows: list[tuple[str, int, bool, int, int, int]],
     uncomputable: int,
 ) -> dict[str, Any]:
     """Where the money went, by price band and by exact leg count (#397).
 
     **COMBINATIONS only; singles stay out.** `shape_rows` is one
-    `(ticker, entry_price_tenths, won, staked_tenths, net_tenths)` per
+    `(ticker, entry_price_tenths, won, staked_tenths, net_tenths, fee_tenths)` per
     combination `settlement_net_tenths` can compute; rows it cannot compute
     are counted in `uncomputable`, never summed as 0.
 
@@ -1229,8 +1280,11 @@ def by_shape_summary(
       too_few plus staked and net at the price paid for the WHOLE
       combination; `unclassified` counts those where any leg's key is None.
     * `off_desk` (#423): `leg_counts`, `same_game_split` and `no_leg_list`
-      again, over only the combinations with no `parlay_positions` row. The
-      keys above keep meaning "all".
+      again, over only the combinations with no `parlay_positions` row, and
+      since #432 its own `price_bands` and `unbanded`. The keys above keep
+      meaning "all".
+    * `total` and `top_winners` (#432 C, D), in both populations: the whole
+      population as one `cell`, and `top_winners_block` over its wins.
 
     Lifetime settled record only, no day window. Descriptive: no rate, no
     return figure, nothing sorted by a result. Lives apart from `summary`
@@ -1242,25 +1296,41 @@ def by_shape_summary(
         t: len(v["game_keys"]) for t, v in shape_legs.items()
     }
 
-    Row = tuple[str, int, bool, int, int]
-
-    def cell(rows: list[Row]) -> dict[str, Any]:
-        block = expected_block([(p, w) for _t, p, w, _s, _n in rows])
-        block["staked_tenths"] = _sum_ints([r[3] for r in rows])
-        block["net_tenths"] = _sum_ints([r[4] for r in rows])
-        return block
+    Row = tuple[str, int, bool, int, int, int]
 
     def banded(p: int) -> bool:
         return 1 <= p <= 999
 
-    price_bands = [
-        {
-            "label": label,
-            **cell([r for r in shape_rows if banded(r[1]) and low <= r[1] < high]),
+    def cell(rows: list[Row]) -> dict[str, Any]:
+        """Expected-vs-won over the rows priced on the grid (`expected_block`
+        takes 1..999 only), staked and net over all of them. `n` and `won`
+        are the grid rows'; a population's `unbanded` count says how many sat
+        off it. Every band is on the grid, so only `total` can differ."""
+        block = expected_block(
+            [(r[1], r[2]) for r in rows if banded(r[1])]
+        )
+        block["staked_tenths"] = _sum_ints([r[3] for r in rows])
+        block["net_tenths"] = _sum_ints([r[4] for r in rows])
+        return block
+
+    def bands(rows: list[Row]) -> dict[str, Any]:
+        """The fixed price bands over ONE population, plus what sits off the
+        grid, so the bands and `unbanded` reconcile to that population."""
+        off_grid = [r for r in rows if not banded(r[1])]
+        return {
+            "price_bands": [
+                {
+                    "label": label,
+                    **cell([r for r in rows if banded(r[1]) and low <= r[1] < high]),
+                }
+                for low, high, label in EXPECTED_BUCKETS
+            ],
+            "unbanded": {
+                "n": len(off_grid),
+                "staked_tenths": _sum_ints([r[3] for r in off_grid]),
+                "net_tenths": _sum_ints([r[4] for r in off_grid]),
+            },
         }
-        for low, high, label in EXPECTED_BUCKETS
-    ]
-    unbanded = [r for r in shape_rows if not banded(r[1])]
 
     def leg_views(rows: list[Row]) -> dict[str, Any]:
         """Leg-count rows, the same-game split and the no-leg-list count over
@@ -1287,6 +1357,13 @@ def by_shape_summary(
             else:
                 cross.append(r)
         return {
+            # #432 C: the whole population's own expected-vs-won line, and
+            # D: how much of what its winners paid the biggest few carried.
+            "total": cell(rows),
+            "top_winners": top_winners_block(
+                [(r[3] + r[4] + r[5], r[4]) for r in rows if r[2]],
+                total_net_tenths=_sum_ints([r[4] for r in rows]),
+            ),
             "leg_counts": leg_counts,
             # Fixed order: same_game, then cross_game, whatever happened.
             "same_game_split": {
@@ -1311,16 +1388,12 @@ def by_shape_summary(
         r for r in shape_rows if not shape_legs.get(r[0], {}).get("on_desk", False)
     ]
     return {
-        "price_bands": price_bands,
-        "unbanded": {
-            "n": len(unbanded),
-            "staked_tenths": _sum_ints([r[3] for r in unbanded]),
-            "net_tenths": _sum_ints([r[4] for r in unbanded]),
-        },
+        **bands(shape_rows),
         **leg_views(shape_rows),
-        # The same three views over the combinations bought off the desk
-        # only (no `parlay_positions` row for the ticker).
-        "off_desk": leg_views(off_desk_rows),
+        # The same views over the combinations bought off the desk only (no
+        # `parlay_positions` row for the ticker). Since #432 C that includes
+        # its own price bands, so the off-desk page reads off-desk prices.
+        "off_desk": {**bands(off_desk_rows), **leg_views(off_desk_rows)},
         "uncomputable": uncomputable,
         "staked_tenths": _sum_ints([r[3] for r in shape_rows]),
         "net_tenths": _sum_ints([r[4] for r in shape_rows]),
@@ -1477,6 +1550,9 @@ def bets_record(conn: sqlite3.Connection, *, limit: int = 200) -> dict:
                     bool(won),
                     settlement_staked_tenths(row),
                     net,
+                    # #432 D: the fee is paid win or lose, so a winner's
+                    # whole swing to a loss is stake + net + fee.
+                    int(row["fee_cost_tenths"]),
                 ))
             if won:
                 wins += 1

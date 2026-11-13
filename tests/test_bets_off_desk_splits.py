@@ -165,7 +165,11 @@ def test_the_off_desk_filter_changes_the_population_not_the_order(tmp_path):
     off = shape["off_desk"]
 
     # Same shape, same fixed order, as the unfiltered views.
-    assert set(off) == {"leg_counts", "same_game_split", "no_leg_list"}
+    assert set(off) == {
+        "leg_counts", "same_game_split", "no_leg_list",
+        # #432 C, D
+        "price_bands", "unbanded", "total", "top_winners",
+    }
     assert _labels(off) == _labels(shape)
 
     # The population: off-desk only. 6 of the 12 same-game combos were bought

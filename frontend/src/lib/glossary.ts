@@ -416,6 +416,14 @@ export const GLOSSARY = {
       "Staked and net beside each row show where the money actually " +
       "went.",
   },
+  top_winners: {
+    label: "top winners",
+    definition:
+      "How much of the profit on your winning tickets came from the " +
+      "biggest few. If the top three carry most of it, the total is mostly " +
+      "those three results. The line also says what the net would read " +
+      "had those three lost instead (each losing its stake and fee).",
+  },
   longshot: {
     label: "long shot",
     definition:

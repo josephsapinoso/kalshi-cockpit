@@ -26,14 +26,27 @@ export type ShapeCell = {
   staked_tenths: number;
   net_tenths: number;
 };
-type LegViews = {
+/** #432 D: how much of what the winners paid came from the biggest few. */
+export type TopWinners = {
+  winners: number;
+  winners_net_tenths: number;
+  shares: { top: number; net_tenths: number }[];
+  removed: number;
+  net_if_top_lost_tenths: number | null;
+};
+type Bands = {
+  price_bands: (ShapeCell & { label: string })[];
+  unbanded: { n: number; staked_tenths: number; net_tenths: number };
+};
+type LegViews = Partial<Bands> & {
+  /** #432 C, D: optional so a backend one version behind still renders. */
+  total?: ShapeCell;
+  top_winners?: TopWinners;
   leg_counts: (ShapeCell & { legs: number })[];
   same_game_split: SameGameSplit;
   no_leg_list: { n: number; staked_tenths: number; net_tenths: number };
 };
-export type ByShape = LegViews & {
-  price_bands: (ShapeCell & { label: string })[];
-  unbanded: { n: number; staked_tenths: number; net_tenths: number };
+export type ByShape = LegViews & Bands & {
   uncomputable: number;
   staked_tenths: number;
   net_tenths: number;
@@ -65,6 +78,44 @@ function CellText({ cell, noun }: { cell: ShapeCell; noun: string }) {
   );
 }
 
+/**
+ * #432 D. The shares and the had-they-lost net are the server's; nothing is
+ * divided here. Printed only when at least one winner paid.
+ */
+function TopWinnersLine({
+  top,
+  won,
+}: {
+  top: TopWinners;
+  /** The total line's own win count, to say why the two can differ. */
+  won: number | null;
+}) {
+  if (top.winners === 0) return null;
+  const shares = top.shares
+    .map(
+      (s) =>
+        `${s.top === 1 ? "the biggest one" : `the top ${s.top}`} ${dollars(s.net_tenths, true)}`,
+    )
+    .join(", ");
+  return (
+    <li>
+      <Term k="top_winners">Top winners</Term>: {top.winners} winning combos
+      made a profit of {dollars(top.winners_net_tenths, true)} between them
+      {shares && <>; of that, {shares}</>}
+      {top.net_if_top_lost_tenths !== null && (
+        <>
+          . Had the top {top.removed} lost, net would read{" "}
+          {dollars(top.net_if_top_lost_tenths, true)}
+        </>
+      )}
+      .
+      {won !== null && won > top.winners && (
+        <> ({won - top.winners} other wins made nothing after fees.)</>
+      )}
+    </li>
+  );
+}
+
 export default function ShapeStrip({
   record,
   population = "all",
@@ -78,6 +129,12 @@ export default function ShapeStrip({
   // whole record's. The rows, their order and the wording do not change.
   const view: LegViews =
     population === "off_desk" && data.off_desk ? data.off_desk : data;
+  // #432 C: the off-desk view has its own bands; an older payload without
+  // them keeps the whole record's, as before.
+  const bands: Bands =
+    view.price_bands && view.unbanded
+      ? { price_bands: view.price_bands, unbanded: view.unbanded }
+      : data;
   const nothing =
     data.price_bands.every((b) => b.n === 0) &&
     data.leg_counts.length === 0 &&
@@ -93,9 +150,26 @@ export default function ShapeStrip({
       <p className="mt-1 max-w-prose">
         Combinations only. Settled bets, whole record.
       </p>
+      {(view.total || view.top_winners) && (
+        <>
+          <p className="mt-1 font-medium">
+            {population === "off_desk" ? "All off-desk combos" : "All combos"}
+          </p>
+          <ul className="mt-1 space-y-1 font-mono">
+            {view.total && (
+              <li>
+                total: <CellText cell={view.total} noun="combos" />
+              </li>
+            )}
+            {view.top_winners && (
+              <TopWinnersLine top={view.top_winners} won={view.total?.won ?? null} />
+            )}
+          </ul>
+        </>
+      )}
       <p className="mt-1 font-medium">By price paid</p>
       <ul className="mt-1 space-y-1 font-mono">
-        {data.price_bands.map((band) => (
+        {bands.price_bands.map((band) => (
           <li key={band.label}>
             {band.label === "under 10c" ? (
               <Term k="longshot">under 10c</Term>
@@ -105,11 +179,11 @@ export default function ShapeStrip({
             : <CellText cell={band} noun="combos" />
           </li>
         ))}
-        {data.unbanded.n > 0 && (
+        {bands.unbanded.n > 0 && (
           <li>
-            price not on the grid: {data.unbanded.n} combos · staked{" "}
-            {dollars(data.unbanded.staked_tenths, false)} · net{" "}
-            {dollars(data.unbanded.net_tenths, true)}
+            price not on the grid: {bands.unbanded.n} combos · staked{" "}
+            {dollars(bands.unbanded.staked_tenths, false)} · net{" "}
+            {dollars(bands.unbanded.net_tenths, true)}
           </li>
         )}
       </ul>
