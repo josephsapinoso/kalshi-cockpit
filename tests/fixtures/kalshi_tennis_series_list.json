@@ -1,0 +1,2345 @@
+{
+  "request": {
+    "endpoint": "https://api.elections.kalshi.com/trade-api/v2/series",
+    "method": "GET",
+    "note": "unauthenticated; category value 'Sports' read from /search/tags_by_categories; tennis is a TAG within it",
+    "params": {
+      "category": "Sports"
+    }
+  },
+  "series": [
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPS1GWINNER",
+      "title": "ATP set 1 game winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAMAD",
+      "title": "WTA Madrid"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPWDDF",
+      "title": "ATP Tour Dubai Duty Free"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXEXHIBITIONMEN",
+      "title": "Men's Tennis Exhibition Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T16:30:02.389109Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPWTA",
+      "title": "Men and Women Tournament Winners"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-15T08:07:31.71984Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPT5RANK",
+      "title": "Top 5 Ranked Player ATP"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPS2GWINNER",
+      "title": "ATP set 2 game winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:45.407845Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTA",
+      "title": "Women's Tournament Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPGTOTAL",
+      "title": "ATP Total Games"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:46.594864Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXDDFMENSINGLES",
+      "title": "Dubai Duty Free Tennis Championships"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXAOWOMEN",
+      "title": "Australian Open Womens"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWIMWOMEN",
+      "title": "Wimbledon Championship Women's"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPMCO",
+      "title": "Movistar Chile Open"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPGSPREAD",
+      "title": "ATP Game Spread"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTATOURNWIN",
+      "title": "Will player win tournament"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:46.032761Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXDAVISCUPMATCH",
+      "title": "Davis Cup Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:46.199082Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXUNITEDCUPMATCH",
+      "title": "United Cup Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXTENNISGRANDSLAM",
+      "title": "Tennis Grand Slam"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:45.292877Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXQEMOMENSSINGLES",
+      "title": "Qatar ExxonMobil Open"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:45.318738Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWMENSINGLES",
+      "title": "WIMBLEDON men's singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-11-11T16:55:16.430805Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXKXKXKXKXKD",
+      "title": "kxkxkxk"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPCOMPETE",
+      "title": "ATP Player to Compete"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:46.102931Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXFOWOMEN",
+      "title": "French Open Women's"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:02:28.792359Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATP1RANK",
+      "title": "ATP #1 Ranked Player"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-11-11T16:24:44.886876Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTADOUBLES",
+      "title": "WTA Doubles Tennis Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPFINALSQUAL",
+      "title": "Will Player Qualify for ATP Finals?"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Golf",
+        "Tennis"
+      ],
+      "ticker": "KXGOLFTENNISMAJORS",
+      "title": "More Major Wins, Tennis vs Golf"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:45.163841Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWWOMENSINGLES",
+      "title": "Wimbledon women's singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-22T14:37:41.818412Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXTENNISSSSSS",
+      "title": "KXTENNISSSSSS"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPGAMESPREAD",
+      "title": "ATP Game Spread"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPMC",
+      "title": "ATP Monte Carlo"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAMOA",
+      "title": "WTA Tour Merida Open Akron"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPACES",
+      "title": "ATP Tennis Aces"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAMIA",
+      "title": "WTA Miami"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:46.753898Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXLAVERCUPMATCH",
+      "title": "Laver Cup Tennis Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:46.847026Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXQOWOMENSINGLES",
+      "title": "Qatar Open Women's Singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTADDF",
+      "title": "WTA Tour Dubai Duty Free"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPS5GWINNER",
+      "title": "ATP set 5 game winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAEXACTMATCH",
+      "title": "WTA Exact Match Score"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:46.655897Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXFOMENSINGLES",
+      "title": "French Open men's singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXSIXKINGSSLAMMATCH",
+      "title": "Six Kings Slam Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPTOTALSETS",
+      "title": "ATP Total Sets"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAGRANDSLAM",
+      "title": "WTA Grand Slam"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-15T08:02:28.792359Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXPLAYERDEAL",
+      "title": "Next Brand Deal"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:44.580806Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXSIXKINGSSEMI",
+      "title": "Six Kings Slam Semifinals"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:45.743736Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXROMENSSINGLES",
+      "title": "Rio Open"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPTIEBREAK",
+      "title": "Tiebreak to occur in Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXMADWOMEN",
+      "title": "Madrid Open Winner (Women's)"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:45.556299Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXMIXEDDOUBLESMATCH",
+      "title": "Mixed Doubles Tennis Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-11-11T16:24:44.628895Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXITFDOUBLES",
+      "title": "ITF Doubles Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:45.570558Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXFOMEN",
+      "title": "French Open Men's"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:07:31.71984Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTA1RANK",
+      "title": "WTA #1 Ranked"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:13:22.437741Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPNATWINNER",
+      "title": "Nationality of Tennis Tournament Winner "
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAGAME",
+      "title": "WTA Tennis Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXIWWOMEN",
+      "title": "Indian Wells Women's Singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:46.061316Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAFINALS",
+      "title": "WTA Finals Champion"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPNATSTAGE",
+      "title": "How many players from country reach stage of tournament?"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXMADMEN",
+      "title": "Men's Madrid Open Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPRETURN",
+      "title": "ATP Player to Return by Date"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAFINALSQUAL",
+      "title": "Will Player Qualify for WTA Finals"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXUNITEDCUPADVANCE",
+      "title": "United Cup Advance"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:44.616365Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXLAVERCUPDOUBLESMATCH",
+      "title": "Laver Cup Doubles Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPANYSET",
+      "title": "ATP Any Set Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPEXACTSETS",
+      "title": "testing"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:46.618884Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXDDFWOMENSINGLES",
+      "title": "Dubai Duty Free Tennis Championships"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXSIXKINGSMATCH",
+      "title": "Six Kings Slam Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-03T17:38:40.307289Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXFOPENMENSINGLE",
+      "title": "French Open men's singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXSINNERFINISH",
+      "title": "Jannik Sinner to Complete Tennis"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTASETWINNER",
+      "title": "WTA Set Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXEXHIBITIONWOMEN",
+      "title": "Women's Tennis Exhibition Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:46.018766Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPNEXTGEN",
+      "title": "ATP Next Gen Finals"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:46.704429Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXSIXKINGSQUARTER",
+      "title": "Six Kings Slam Quarterfinals"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXTENNISMAJORDJOKOVIC",
+      "title": "Djokovic major"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:44.550481Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXFOWOMENSINGLES",
+      "title": "French Open women's singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXBATTLEOFSEXESSET",
+      "title": "Battle of the Sexes Set Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:45.396172Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPMATCH",
+      "title": "ATP Tennis Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:45.109518Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXAOMENSINGLES",
+      "title": "Argentina Open men's singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-21T17:39:41.993745Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXGRANDSLAM",
+      "title": "Grand Slam Wins by Year"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAIT",
+      "title": "WTA Italian Open"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPSSPREAD",
+      "title": "ATP Set Spread"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:45.306174Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPCHALLENGERMATCH",
+      "title": "Challenger ATP "
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T21:40:06.708396Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPRETIRE",
+      "title": "ATP Tennis Retirement"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:45.717633Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATP",
+      "title": "Men's Tournament Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:44.927232Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXUSOWOMENSINGLES",
+      "title": "US Open women's singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPSETWINNER",
+      "title": "ATP Set Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:13:22.437741Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPNOVAK25",
+      "title": "When will Novak win his 25th Major?"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAACES",
+      "title": "WTA Tennis Aces"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXCHALLENGERMATCH",
+      "title": "Challenger ATP "
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPGWINNER",
+      "title": "ATP Game Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:44.794698Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXO13MENSINGLES",
+      "title": "Open 13 (Marseille) Mens' Singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXDAVISCUP",
+      "title": "Davis Cup Champions"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAIWO",
+      "title": "Indian Wells Open"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXIWMENDOUBLES",
+      "title": "Indian Wells Men's Doubles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPRANK",
+      "title": "ATP #1 Ranked Player"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAATX",
+      "title": "WTA Tour ATX Open"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:44.952448Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPDOUBLES",
+      "title": "ATP Doubles Tennis Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-11-11T16:24:44.641317Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXLAVERCUP",
+      "title": "Laver Cup"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:44.719497Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXITFWDOUBLES",
+      "title": "ITF Women's Doubles Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWIMMEN",
+      "title": "Wimbledon Championship Men's"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXDAVISCUPADVANCE",
+      "title": "Davis Cup Advance"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPGAME",
+      "title": "ATP Tennis Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-12T17:03:12.619359Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPSETSWEEP",
+      "title": "Winner without dropping a set"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPAMT",
+      "title": "ATP Tour Abierto Mexican Telcel presentado por HSBC"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAROE",
+      "title": "WTA Round of Elimination"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXTENNISEXHIBITION",
+      "title": "Tennis Exhibition Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXAOMEN",
+      "title": "Australian Open Mens"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:45.24263Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXROMENSDOUBLES",
+      "title": "Rio Open men Doubles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAGTOTAL",
+      "title": "WTA Total Games"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPS4GWINNER",
+      "title": "ATP set 4 game winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPADVANCE",
+      "title": "ATP Stage Qualifiers"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:44.744166Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTACHALLENGERMATCH",
+      "title": "Challenger WTA"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPGAMETOTAL",
+      "title": "ATP Total Games"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPS3GWINNER",
+      "title": "ATP set 3 game winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:45.759809Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXITFWMATCH",
+      "title": "ITF Women's Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAADVANCE",
+      "title": "WTA Stage Qualifiers"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:44.659746Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXUSOMENSINGLES",
+      "title": "US Open men's singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:45.693242Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPCHALLENGERDOUBLES",
+      "title": "ATP Challenger Doubles Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXBATTLEOFSEXES",
+      "title": "Battle of the Sexes Tennis Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPIWO",
+      "title": "Indian Wells Open"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXMCMMEN",
+      "title": "ATP Monte-Carlo Masters Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPMIA",
+      "title": "ATP Miami"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXMOWOMEN",
+      "title": "Miami Open Winner (Women's)"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPGRANDSLAMFIELD",
+      "title": "ATP Grand Slam Field Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:44.819934Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPFINALS",
+      "title": "ATP Finals Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPMEN",
+      "title": "Mens ATP Tournament Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPIT",
+      "title": "ATP Italian Open"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-03T17:38:40.275393Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXFOPENWMENSINGLE",
+      "title": "French Open women's singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXPICKLEBALLMATCH",
+      "title": "Pickleball Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXIWMEN",
+      "title": "Indian Wells Men's Singles"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPEXACTMATCH",
+      "title": "ATP Exact Match Score"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-27T18:29:39.077062Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTASERENA",
+      "title": "Serena Williams WTA"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:45.279536Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXITFMATCH",
+      "title": "ITF Men's Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-11-11T16:24:45.849906Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXSIXKINGSSLAM",
+      "title": "Six Kings Slam Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "annual",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPMAD",
+      "title": "ATP Madrid"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXMCMEN",
+      "title": "ATP Monte-Carlo Winner"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic_with_maker_fees",
+      "frequency": "custom",
+      "last_updated_ts": "2026-11-11T16:24:46.498715Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTAMATCH",
+      "title": "WTA Tennis Match"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXMOMEN",
+      "title": "Miami Open Winner (Men's)"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXWTANATSTAGE",
+      "title": "How many players from country will reach stage at tournament?"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPGRANDSLAM",
+      "title": "ATP Grand Slam"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXMIXEDDOUBLES",
+      "title": "Mixed Doubles Tournament Champion"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXGRANDSLAMJFONSECA",
+      "title": "Wil Joao Fonseca Win a grand slam"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:14:10.229686Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXUNITEDCUP",
+      "title": "United Cup Champions"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "one_off",
+      "last_updated_ts": "2026-10-27T18:29:39.117724Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXCALCFO",
+      "title": "Will Carlos Alcaraz play in French Open"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXATPROUND",
+      "title": "Will player reach round?"
+    },
+    {
+      "categories": [
+        "Sports"
+      ],
+      "category": "Sports",
+      "exchange_index": 3,
+      "fee_multiplier": 1,
+      "fee_type": "quadratic",
+      "frequency": "custom",
+      "last_updated_ts": "2026-10-15T08:08:18.921908Z",
+      "tags": [
+        "Tennis"
+      ],
+      "ticker": "KXALCARAZCOACH",
+      "title": "Carlos Alcaraz Next Coach"
+    }
+  ],
+  "trim": {
+    "dropped_fields": [
+      "additional_prohibitions",
+      "contract_terms_url",
+      "contract_url",
+      "product_metadata",
+      "settlement_sources"
+    ],
+    "kept": "series whose tags contain 'Tennis' (client-side filter)",
+    "tennis_series_kept": 145,
+    "total_series_returned": 4296
+  }
+}

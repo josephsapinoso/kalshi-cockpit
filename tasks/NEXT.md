@@ -139,6 +139,25 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-11-13 (hundred-and-eleventh session) — Kalshi's tennis payloads captured (#441); #439's "no caller" fact corrected; Joe answered #442 (A): live reads go to a laptop session
+
+- **Ran from a cloud container.** It cannot reach the live database, Fly, the Odds API key or the Dependabot API (403); Kalshi's public API answers 200. `partner` judged that little of the queue could run from here and scoped the session to the one lane that could.
+- **#441 (merged `f42499a4`, lane commit `5f40e479`): Kalshi's tennis side captured, each fixture with its request.**
+  - Six fixtures `tests/fixtures/kalshi_tennis_*.json`, plus `tests/test_kalshi_tennis_capture.py`. No `backend/` diff.
+  - The series list has 145 series tagged `Tennis`. There is one match series per tier: `KXATPMATCH`, `KXATPCHALLENGERMATCH`, `KXWTAMATCH`, `KXWTACHALLENGERMATCH`.
+  - `yes_sub_title` carries the full player name. The event title is "Surname vs Surname". A live KXMVE collection carries tennis matches as legs.
+  - No name matching was designed: the Odds-side capture comes first (lesson 2026-11-12).
+- **#439 corrected by comment.** Last session's fact-scout said `ondemand.take()` has no caller. It has two: `scripts/run_loop.py:954` and `:1022`. The scout searched `backend/` only (lesson below).
+- **Question for Joe: how should the four reads that need live get done? — #442.** Answered **(A)**, with buttons: the next session runs on the laptop. Recorded and closed.
+- **Not done here.** #401, #436, the Odds half of #439 and Dependabot all need the laptop (#442 A). #347 is still deferred. #337 is dated 2027-01-15. No deploy: the change is test fixtures only.
+
+### Still open (adds to the list below)
+
+1. #439 — on the laptop: capture the Odds API tennis sport list and one ATP and one Challenger event (about 2 credits), then design the link against #441's captures.
+2. #401 — on the laptop: read the college-basketball slates (OVERDUE).
+3. #436 — on the laptop: confirm on live that a market added mid-connection gets a fresh book.
+4. #442 — on the laptop: read Dependabot alerts and the running container's package versions (the alert query cannot see `cryptography`).
+
 ## 2026-11-13 (hundred-and-tenth session) — Joe answered #435 (A), #427 (A) and #426 (C); #437's copy audited and fixed; the linker's overrides made exclusive (#434)
 
 - **Joe's answers, given with buttons this session.** Each is recorded on its ticket and the ticket is closed.
@@ -717,6 +736,7 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-11-13 (hundred-and-eleventh session) — Kalshi's tennis payloads captured (#441); #439's "no caller" fact corrected; Joe answered #442 (A): live reads go to a laptop session
 - 2026-11-13 (hundred-and-tenth session) — Joe answered #435 (A), #427 (A) and #426 (C); #437's copy audited and fixed; the linker's overrides made exclusive (#434)
 - 2026-11-13 (hundred-and-ninth session) — ALSHI's architecture weighed: a serve-only home rehearsal (#435) and live Kalshi prices on the ticket and held legs (#436); on branch `claude/friendly-rubin-1g1903`, not deployed
 - 2026-11-12 (hundred-and-eighth session) — totals in four leagues deployed (#418); NHL totals priced where overtime cannot decide them (#430); totals refuse any shape but "YES above the line" (#431); college basketball's first slates read (#401, partial); live and demo on `993b714f`

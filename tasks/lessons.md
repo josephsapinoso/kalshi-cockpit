@@ -16,6 +16,15 @@ correction arrived. Reviewed at session start.
 
 ---
 
+## 2026-11-13 - A "no caller" claim is only as wide as the tree it searched
+
+From the hundred-and-eleventh session (#439, corrected by `partner`).
+
+- **A fact-scout reported that `ondemand.take()` has no caller, and the claim went onto a ticket as a thing to trace.** The scout had searched `backend/` only. The runner's loop is `scripts/run_loop.py`, which calls it at `:954` and `:1022`. An absence holds only for the place that was searched. This is the capture-without-request rule again, applied to a grep.
+- **The rule:**
+  - Before writing "nothing calls X", search the whole repo: `git grep -n "X("`. Then name the deployed entry points (`scripts/run_loop.py`, the app factory, `fly.*.toml` process commands) and confirm each one was inside the search.
+  - When you put an absence on a ticket, write the search that produced it beside it.
+
 ## 2026-11-12 - Loosening a parser can remove a guard nobody knew it was providing
 
 From the hundred-and-eighth session (#418, then kalshi-platform's #430 review).

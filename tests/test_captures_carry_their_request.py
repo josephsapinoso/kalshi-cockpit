@@ -433,6 +433,42 @@ DISPOSITIONS: dict[str, RecordsItsRequest | NotACapture | RequestUnrecorded] = {
             "fixture is that /events and /markets/{t} agree field for field, "
             "which needs the reader to know they were asked about one market.",
     ),
+    "kalshi_tennis_series_list.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("category",),
+        endpoint_in=(),
+        how="Public unauthenticated /series capture filtered client-side to the Tennis tag, written through scripts/capture_envelope.write_capture; the request block holds the category param.",
+    ),
+    "kalshi_tennis_event_atp_main.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "status", "with_nested_markets"),
+        endpoint_in=(),
+        how="Public unauthenticated /events capture of one tennis match event with nested markets, written through scripts/capture_envelope.write_capture; the `request` block holds method, endpoint and params.",
+    ),
+    "kalshi_tennis_event_atp_challenger.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "status", "with_nested_markets"),
+        endpoint_in=(),
+        how="Public unauthenticated /events capture of one tennis match event with nested markets, written through scripts/capture_envelope.write_capture; the `request` block holds method, endpoint and params.",
+    ),
+    "kalshi_tennis_event_wta_main.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "status", "with_nested_markets"),
+        endpoint_in=(),
+        how="Public unauthenticated /events capture of one tennis match event with nested markets, written through scripts/capture_envelope.write_capture; the `request` block holds method, endpoint and params.",
+    ),
+    "kalshi_tennis_event_wta_challenger.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("series_ticker", "status", "with_nested_markets"),
+        endpoint_in=(),
+        how="Public unauthenticated /events capture of one tennis match event with nested markets, written through scripts/capture_envelope.write_capture; the `request` block holds method, endpoint and params.",
+    ),
+    "kalshi_tennis_mve_collection.json": RecordsItsRequest(
+        params_in=("request",),
+        param_names=("collection_ticker",),
+        endpoint_in=(),
+        how="Public unauthenticated KXMVE collection read trimmed to its tennis legs, written through scripts/capture_envelope.write_capture; the request names the collection ticker.",
+    ),
     "candlesticks_mlb.json": RecordsItsRequest(
         params_in=("markets",),
         param_names=("series_ticker", "period_interval", "start_ts", "end_ts"),
