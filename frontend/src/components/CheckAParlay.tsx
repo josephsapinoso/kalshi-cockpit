@@ -18,6 +18,23 @@ import { ParlayLegsContext, tenthsFromDisplay } from "@/lib/parlayCost";
 import { Button, Stat } from "@/components/ui";
 
 /**
+ * What a tennis leg adds to the wire (#446). `types/parlays.ts` still types
+ * `line_source` as main | alternate, so the extra fields are read through this
+ * local widening until that file takes them.
+ */
+type TennisLegFields = {
+  line_source: "main" | "alternate" | "tennis" | null;
+  books_used?: string[] | null;
+  anchored_on_sharp?: boolean | null;
+  settlement_note?: string | null;
+};
+type TennisBuy = {
+  kalshi_event_ticker: string;
+  accepted: boolean;
+  detail: string;
+};
+
+/**
  * "Check a parlay someone else built" — issue #165, #167.
  *
  * 82 of Joe's 142 settled parlays were never priced on this desk because
@@ -223,7 +240,11 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
   return (
     <div className="mt-4 space-y-3 text-sm">
       <ol className="divide-y divide-border">
-        {value.legs.map((leg) => (
+        {value.legs.map((rawLeg) => {
+          const leg = rawLeg as Omit<typeof rawLeg, "line_source"> &
+            TennisLegFields;
+          const isTennis = leg.line_source === "tennis";
+          return (
           <li key={leg.market_ticker} className="py-2">
             <p className="font-semibold">{leg.label}</p>
             <p className="text-xs uppercase tracking-wide text-muted">
@@ -259,11 +280,30 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
                 {leg.probable_bug_reason}.
               </p>
             )}
-            {leg.probable_bug_status === "unknown" && (
+            {leg.probable_bug_status === "unknown" && !isTennis && (
               <p className="text-xs text-muted">No desk price.</p>
             )}
             {/* #303: a chance read off the books' other lines says so, and
                 says how many books spoke -- often fewer than the main line. */}
+            {/* #446: a tennis chance is the sportsbooks' match-winner price
+                for this player. Books used and the anchor are facts on the
+                row; a sharp anchor is the thinner read, never a quality
+                mark. */}
+            {isTennis && leg.books_used && (
+              <p className="text-xs text-muted">
+                From the sportsbooks’ match-winner price ·{" "}
+                {leg.books_used.length}{" "}
+                {leg.books_used.length === 1 ? "book" : "books"}
+                {leg.anchored_on_sharp === true
+                  ? " · anchored on the sharpest books"
+                  : leg.anchored_on_sharp === false
+                    ? " · all books"
+                    : ""}
+              </p>
+            )}
+            {isTennis && leg.settlement_note && (
+              <p className="text-xs text-muted">{leg.settlement_note}</p>
+            )}
             {leg.line_source === "alternate" && leg.alt_books_used !== null && (
               <p className="text-xs text-muted">
                 From the books’ <Term k="alt_line">other lines</Term> at this
@@ -272,8 +312,18 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
               </p>
             )}
           </li>
-        ))}
+          );
+        })}
       </ol>
+
+      {/* #446: a tennis buy the inbox REFUSED is said in its own words. */}
+      {((value as typeof value & { tennis_buys?: TennisBuy[] }).tennis_buys ?? [])
+        .filter((buy) => !buy.accepted)
+        .map((buy) => (
+          <p key={buy.kalshi_event_ticker} className="text-xs text-muted">
+            Could not buy this match’s sportsbook price: {buy.detail}
+          </p>
+        ))}
 
       {/* #303: a buy the inbox REFUSED is said in its own words. An accepted
           one needs no line here -- its legs already carry the server
