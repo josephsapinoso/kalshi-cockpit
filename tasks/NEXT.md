@@ -178,6 +178,12 @@ the channel diagnostic (A17.6/A17.11).
 
 ### Still open (adds to the list below; #445 and #446 are closed)
 
+**PRIORITY FROM HERE ON (Joe, 2026-11-13): the move of live off Fly to the home desktop comes before any betting work.** The plan, phases 0 to 4, is Joe's private Claude Doc "Kalshi cockpit: migration to the home desktop" (private to him; the link is in session memory, not this public file). The queue is epic **#449**. Betting tickets wait unless live is broken.
+
+0. #438 — Phase 0 rehearsal; Joe's steps first (invoices, desktop RAM/disk/edition, Docker + Tailscale installs).
+0. #450 — config parity script and test (Sonnet lane; changes nothing on live).
+0. #451 — dormant live compose file (main; after #450).
+0. #452 — heartbeat dead-man over the tailnet (main; needs Joe's Tailscale auth key).
 1. #448 — 2027-01-18: the first Australian Open tennis check on live (the November one is done; this is the second look, on a Slam).
 2. #347 — the dry engine's no-op work and dead routes (partner: leads the next session if the frontier stays thin).
 
