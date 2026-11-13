@@ -153,11 +153,12 @@ the channel diagnostic (A17.6/A17.11).
 - **#434 (`057df4c`): an alias override is exclusive.** `_matches` now returns the override comparison alone. `Tennessee: Tennessee Volunteers` was added to the NCAAB file. The 2026-11-12 capture links 62 of 62 (was 61), and the NFL and NCAAF capture tests are unchanged. Mutation: reverting to the additive form turns 4 tests red.
 - **#347 re-scoped by comment.** Keep QuoteHub, since `/api/stream/books` now uses it. Only `/api/stream/quotes` and its idle broadcast go. It is still deferred.
 - **Verified.** 1,149 source-reading tests plus the linker set (487) are green, as are ruff, `tsc` and `next build`. CI collects the full count.
-- **Not done here.** Dependabot: the alert API returns 403 from this container, so that read is owed by a laptop session. Nothing is deployed. #401, #360 and #436 need live access.
+- **Merged and deployed.** PR #437 merged as `50f3d213`. Live was deployed on Joe's typed confirmation (deploy run 43451213584), and `/api/health` `build.git_sha` = `50f3d213`. The demo was not redeployed.
+- **Not done here.** Dependabot: the alert API returns 403 from this container, so a laptop session owes that read. #401, #360 and #436 need live database access.
 
 ### Still open (adds to the list below; #435 above is closed)
 
-1. #438 — merge #437, deploy live (Joe types the confirmation), then Joe runs the home rehearsal.
+1. #438 — #437 merged and live on `50f3d213`; Joe reads the Fly invoices, then runs the home rehearsal.
 2. #439 — capture the Odds API tennis sport list and one ATP and one Challenger event; then design the tennis link.
 3. #436 — after the live deploy, confirm a market added mid-connection gets a fresh book (the ticket now says "No live book ... yet" until it does).
 
