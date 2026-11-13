@@ -577,6 +577,14 @@ export const fetchHealth = () =>
     live_quotes_available?: boolean;
   }>("/api/health");
 
+/** The URL of the live top-of-book stream for these tickers. An
+ *  `EventSource` target, so it is a URL and not a fetch; it goes through the
+ *  same base as every other read. */
+export const liveBooksUrl = (tickers: string[]) =>
+  `${BASE}/api/stream/books?${tickers
+    .map((t) => `ticker=${encodeURIComponent(t)}`)
+    .join("&")}`;
+
 /**
  * Whether a row failed a named suppression rule.
  *

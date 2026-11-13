@@ -41,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import statistics
 import sys
 import time
@@ -50,6 +51,9 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "https://kalshi-cockpit.fly.dev"
+# The home rehearsal times a serve-only copy with this same script
+# (docs/runbooks/home-rehearsal.md): TIMING_BASE_URL=https://<machine>.<tailnet>.ts.net
+BASE = os.environ.get("TIMING_BASE_URL", BASE).rstrip("/")
 
 
 def token() -> str:

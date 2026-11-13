@@ -1,0 +1,57 @@
+# The home rehearsal: a SERVE-ONLY copy of the live desk on the home machine.
+#
+#   docker compose -f docker-compose.home.yml up -d --build
+#
+# Runbook: docs/runbooks/home-rehearsal.md. Read it first; this file is step 4.
+#
+# This is not a second live instance and must never become one. It serves a
+# snapshot of the live database (scripts/snapshot_live_db.py) so the same pages
+# can be timed against Fly and against this machine in the same window. The
+# entrypoint enforces the invariants (SERVE_ONLY=1, docker/entrypoint.sh):
+# no chain runner, no Kalshi key, every credentialed Kalshi path refuses.
+#
+# Every key that spends money or tokens is blanked below, AFTER env_file, so a
+# home env file copied from the laptop's .env cannot switch one back on:
+# `environment:` wins over `env_file:` in compose.
+#
+# The port is bound to 127.0.0.1 only. Phone access is `tailscale serve` on
+# the host, which proxies the tailnet HTTPS name to this loopback port. Nothing
+# is published to the LAN and nothing uses Tailscale Funnel (public internet).
+#
+# The database lives on a NAMED volume inside Docker's Linux VM, not a bind
+# mount of a Windows folder. A bind mount across the WSL2 boundary is slow for
+# a multi-GB SQLite file, and SQLite's file locking is not reliable over it.
+
+services:
+  cockpit:
+    build: .
+    image: kalshi-cockpit:home
+    env_file:
+      # Holds APP_AUTH_TOKEN and COCKPIT_BASE_URL (your https://<machine>.<tailnet>.ts.net).
+      # Gitignored by `.env.*`. See the runbook for its contents.
+      - .env.home
+    environment:
+      INSTANCE_MODE: "live"
+      SERVE_ONLY: "1"
+      KALSHI_PUBLIC_READ_ONLY: "true"
+      DB_PATH: "/data/cockpit.db"
+      PORT: "3000"
+      # Blanked: nothing on this copy may spend, place, push or record.
+      KALSHI_PRIVATE_KEY_B64: ""
+      KALSHI_PRIVATE_KEY_PATH: ""
+      KALSHI_API_KEY: ""
+      ODDS_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      DISCORD_WEBHOOK_URL: ""
+      DISCORD_BOT_TOKEN: ""
+      DISCORD_CHANNEL_ID: ""
+      MANUAL_ORDERS_ENABLED: "false"
+      LIVE_TRADING_ENABLED: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - cockpit_home_data:/data
+    restart: unless-stopped
+
+volumes:
+  cockpit_home_data:

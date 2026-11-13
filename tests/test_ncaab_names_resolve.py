@@ -10,7 +10,7 @@ WHAT THIS DOES NOT ESTABLISH
 ----------------------------
 - **That the alias file is complete.** 62 fixtures is one night; a school
   absent from the file and from this capture is unread, not proven fine.
-- **That every link is right by name.** The nine alias-earned links are pinned
+- **That every link is right by name.** The ten alias-earned links are pinned
   pair by pair, read off the capture; the other 52 are held only to "each book
   fixture is used once" and "every link sits at Kalshi's 3-hour offset".
 - **Anything about the 115 events with no book fixture at their kickoff or none
@@ -45,11 +45,12 @@ ALIAS_EARNED = {
     "KXNCAAMBGAME-26NOV13MSMVT": ("Mt. St. Mary's Mountaineers", "Virginia Tech Hokies"),
     "KXNCAAMBGAME-26NOV13SEMOMTU": ("SE Missouri St Redhawks", "Middle Tennessee Blue Raiders"),
     "KXNCAAMBGAME-26NOV13ULMASU": ("UL Monroe Warhawks", "Arizona St Sun Devils"),
+    # #434: "Tennessee" token-prefixes three book names; only an EXCLUSIVE
+    # override (linker._matches test 2) gives this pair a bijection.
+    "KXNCAAMBGAME-26NOV13TNSTTENN": ("Tennessee St Tigers", "Tennessee Volunteers"),
 }
-#: "Tennessee" is a token prefix of both book names; an alias cannot remove a
-#: prefix match, so this pair has no bijection and stays refused.
 TENNESSEE = "KXNCAAMBGAME-26NOV13TNSTTENN"
-LINKED_WITH_FILE = 61
+LINKED_WITH_FILE = 62
 LINKED_WITHOUT = 52
 #: Kalshi's `occurrence_datetime` sits three hours after the book's kickoff on
 #: every linked game; the linker's tolerance is four.
@@ -92,7 +93,7 @@ SKEWS: dict[str, int] = {}
 
 
 class TestCollegeBasketballNamesResolve:
-    def test_the_alias_file_links_exactly_the_nine_it_was_written_for(self):
+    def test_the_alias_file_links_exactly_the_ten_it_was_written_for(self):
         with_file = _results(load_aliases(SPORT_KEY))
         without = _results(TeamAliases(sport_key=SPORT_KEY))
         changed = {t for t in with_file if with_file[t] != without[t]}
@@ -116,8 +117,11 @@ class TestCollegeBasketballNamesResolve:
         _results(load_aliases(SPORT_KEY))
         assert SKEWS and set(SKEWS.values()) == {BOOK_MINUS_KALSHI_MS}
 
-    def test_tennessee_st_at_tennessee_stays_refused(self):
-        assert _results(load_aliases(SPORT_KEY))[TENNESSEE] is None
+    def test_tennessee_st_at_tennessee_links_once_the_override_is_exclusive(self):
+        """#434. Before it, an override only added a match, so the pair had no
+        bijection and was refused. Without the alias file it still is."""
+        assert _results(load_aliases(SPORT_KEY))[TENNESSEE] == ("Tennessee St Tigers", "Tennessee Volunteers")
+        assert _results(TeamAliases(sport_key=SPORT_KEY))[TENNESSEE] is None
 
     def test_the_alias_file_exists(self):
         assert (ALIAS_DIR / f"{SPORT_KEY}.yaml").exists()

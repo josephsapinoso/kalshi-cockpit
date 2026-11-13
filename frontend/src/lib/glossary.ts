@@ -204,6 +204,15 @@ export const GLOSSARY = {
       "price. There is also a “mid” (an average of buy and sell), " +
       "but nobody gets to pay the mid, so every judgement here uses the ask.",
   },
+  bid: {
+    label: "bid",
+    definition:
+      "The best price someone will pay for this side on Kalshi's book. " +
+      "Only the contracts resting at that price get it. Buying then " +
+      "selling back costs the gap plus a fee each trade. On a parlay " +
+      "leg this is not your parlay: its exit is its own book and a maker " +
+      "quote, so check both.",
+  },
   breakeven: {
     label: "break-even",
     definition:

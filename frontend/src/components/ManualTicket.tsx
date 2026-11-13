@@ -99,7 +99,7 @@
  * staleness or in-play gate would be a sixth under a new name.
  */
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 
 import HeldConflictsNote from "@/components/HeldConflictsNote";
 
@@ -120,6 +120,8 @@ import {
   type ExposureWords,
 } from "@/lib/exposureLine";
 import { KALSHI_MARKETS_INDEX, kalshiMarketUrl } from "@/lib/kalshiLink";
+import { askMoved, bookAgeMs, liveAsk } from "@/lib/liveBooks";
+import { useLiveBooks } from "@/lib/useLiveBooks";
 import Term from "@/components/Term";
 import { Notice } from "@/components/ui";
 import { useReportBusy } from "@/components/Sheet";
@@ -660,6 +662,8 @@ function TicketBody({
         )}
       </div>
 
+      <LiveAskLine market={market} side={side} />
+
       {/* Ticket #160 (Joe, 2026-09-25): the two facts that decide WHETHER he
           bets come first, above the amount and the real-money strip. Until
           then both rendered last, under everything he had to read to reach
@@ -941,6 +945,83 @@ function TicketBody({
  * ADR 0112 removed all five brakes on a hand bet, and a screen that gated the
  * button on a stale mirror would restore one under a new name.
  */
+/**
+ * The ask on Kalshi's book now, beside the ask the ticket was priced at.
+ *
+ * Joe's rule (2026-11-13): show it, never re-pin. The max price, the fee and
+ * the break-even above stay the server's preflight; when the book's ask moves
+ * away from it this says so and points at the Re-read button, which is the
+ * only thing that re-prices the ticket. No gate: `canConfirm` reads none of
+ * this, because a staleness brake would be the sixth ADR 0112 removed.
+ *
+ * Renders nothing on an instance with no feed, and nothing for a combination,
+ * whose book is empty between RFQs by design (ADR 0164).
+ */
+function LiveAskLine({
+  market,
+  side,
+}: {
+  market: ManualMarket;
+  side: "yes" | "no";
+}) {
+  const live = useLiveBooks(market.is_combo ? [] : [market.ticker]);
+  if (live.status === "off") return null;
+  const pinned = market.sides[side];
+  const book = live.state.books[market.ticker];
+  const ask = liveAsk(book, side);
+  const age = bookAgeMs(live.state, market.ticker, live.now);
+  const moved = askMoved(pinned.ask_tenths, ask);
+
+  let line: ReactNode;
+  if (live.status === "connecting") {
+    line = <>Live price: connecting to Kalshi&rsquo;s feed&hellip;</>;
+  } else if (live.status === "down" || live.status === "silent") {
+    line = (
+      <>
+        Live feed {live.status === "down" ? "down" : "silent"}: treat any live
+        price here as frozen.
+      </>
+    );
+  } else if (!book) {
+    // No frame yet for this ticker: the desk has no data, so it says that and
+    // claims nothing about the venue (unreadable is None, never "no ask").
+    line = <>No live book for this market yet.</>;
+  } else if (ask === null) {
+    const unpriced = side === "yes" ? book?.yes_ask_unpriced : book?.no_ask_unpriced;
+    line = unpriced ? (
+      <>
+        A {side.toUpperCase()} <Term k="ask">ask</Term> rests at a price finer
+        than a tenth of a cent, which this desk cannot show.
+      </>
+    ) : (
+      <>
+        No {side.toUpperCase()} <Term k="ask">ask</Term> on Kalshi&rsquo;s
+        book{age !== null && <> ({formatAge(age)})</>}.
+      </>
+    );
+  } else {
+    line = (
+      <>
+        Live <Term k="ask">ask</Term> {ask.display}
+        {age !== null && <span className="text-muted"> &middot; {formatAge(age)}</span>}
+      </>
+    );
+  }
+
+  return (
+    <div className="space-y-1 text-xs" aria-live="polite">
+      <p className="text-muted">{line}</p>
+      {live.status === "live" && moved !== null && pinned.ask_display !== null && ask && (
+        <p className="text-accent-2">
+          Kalshi&rsquo;s ask moved to {ask.display}
+          {age !== null && <> ({formatAge(age)})</>}; this ticket was priced at{" "}
+          {pinned.ask_display}. Re-read the book to re-price it.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Exposure({ words }: { words: ExposureWords | null }) {
   if (words === null) {
     return (

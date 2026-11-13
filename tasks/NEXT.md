@@ -139,6 +139,53 @@ nothing fires at 22:40Z. **The H4 look series is CLOSED — BLOCKED ON
 INSTRUMENT, 2026-08-21** — do not build the A9–A12 analyzer and do not re-run
 the channel diagnostic (A17.6/A17.11).
 
+## 2026-11-13 (hundred-and-tenth session) — Joe answered #435 (A), #427 (A) and #426 (C); #437's copy audited and fixed; the linker's overrides made exclusive (#434)
+
+- **Joe's answers, given with buttons this session.** Each is recorded on its ticket and the ticket is closed.
+  - **#435 (A), rehearse first.** Live stays on Fly. The rehearsal is **#438** (owner joe). Its first step is merging #437 and deploying live at that SHA.
+  - **#427 (A), keep as is.** A same-game ticket gets no combined chance, and ADR 0189 is unchanged.
+  - **#426 (C), price tennis only on a check.** The build is **#439**. It is **blocked on a capture**: no tennis odds payload is in `tests/fixtures/`, no tennis sport key exists in `backend/`, and this container has no Odds API key. The fact-scout's citations are on #439. It also found no caller of `ondemand.take()`; trace that before adding a kind.
+- **PR #437 copy audit (measurement-skeptic): OVERSTATED, three FIX, all fixed in this session's copy commit.**
+  - The `bid` entry priced a round trip at the spread alone and named a leg's bid as an exit Joe does not hold. It now names a fee on each trade, the depth limit, and "check both" for a parlay. The popover cap is 55 words, and the first draft was 101.
+  - The ticket said "No live ask ... right now" when it had no book. It now says "No live book for this market yet", which is the Unreadable → None rule applied to copy.
+  - The hedge page said the leg prices were live, but each leg's chance was read at load. The line now says only the market lines are live.
+  - `tests/test_live_price_copy_names_what_it_shows.py`: 9 tests, all red on the pre-fix tree.
+- **#434 (`057df4c`): an alias override is exclusive.** `_matches` now returns the override comparison alone. `Tennessee: Tennessee Volunteers` was added to the NCAAB file. The 2026-11-12 capture links 62 of 62 (was 61), and the NFL and NCAAF capture tests are unchanged. Mutation: reverting to the additive form turns 4 tests red.
+- **#347 re-scoped by comment.** Keep QuoteHub, since `/api/stream/books` now uses it. Only `/api/stream/quotes` and its idle broadcast go. It is still deferred.
+- **Verified.** 1,149 source-reading tests plus the linker set (487) are green, as are ruff, `tsc` and `next build`. CI collects the full count.
+- **Not done here.** Dependabot: the alert API returns 403 from this container, so that read is owed by a laptop session. Nothing is deployed. #401, #360 and #436 need live access.
+
+### Still open (adds to the list below; #435 above is closed)
+
+1. #438 — merge #437, deploy live (Joe types the confirmation), then Joe runs the home rehearsal.
+2. #439 — capture the Odds API tennis sport list and one ATP and one Challenger event; then design the tennis link.
+3. #436 — after the live deploy, confirm a market added mid-connection gets a fresh book (the ticket now says "No live book ... yet" until it does).
+
+## 2026-11-13 (hundred-and-ninth session) — ALSHI's architecture weighed: a serve-only home rehearsal (#435) and live Kalshi prices on the ticket and held legs (#436); on branch `claude/friendly-rubin-1g1903`, not deployed
+
+- **Prompt.** Joe shared a self-hosted Kalshi desk (ALSHI, r/BuildWithClaude): WebSocket books pushed to the browser, a home machine reached over Tailscale, local Ollama. He chose an evaluation plus a phased plan, with his Windows desktop as host. Its repo (`jangles-byte/ALSHI`) returned 404 and Reddit blocked fetches, so the comparison rests on the post text he pasted and a 72 s screen recording.
+- **The finding.** The Kalshi WebSocket was already built and running (ADR 0119), so nothing needed copying there. The one speed lever ALSHI's setup has that this desk lacks is the host: the ~3 s stall sits on Fly's side (#193), and the file is about twice the box's memory (ADR 0188). It is CPU-light. Ollama fits worst, because the agents need web search.
+- **`074333f`: home rehearsal tooling** (`docs/runbooks/home-rehearsal.md`, with the GO / NO-GO / UNRESOLVED rule written before any reading).
+  - `SERVE_ONLY=1` in `docker/entrypoint.sh` starts no runner, refuses to boot without `KALSHI_PUBLIC_READ_ONLY=true`, and refuses if a Kalshi key is set.
+  - `docker-compose.home.yml` blanks every credential in `.env.example` and binds to loopback for `tailscale serve`.
+  - `scripts/snapshot_live_db.py` takes an online-backup copy and refuses below 1.5x free space plus 1 GiB. It ships in the image by `.dockerignore` allowlist.
+  - `time_live_routes.py` takes `TIMING_BASE_URL`.
+- **`5b10337`: live prices on the hand-bet ticket and held legs.**
+  - The old `/api/stream/quotes` carries only engine rows sized above zero, so it is idle on live.
+  - New `GET /api/stream/books?ticker=...`: `QuoteHub.watch` adds named markets to the one socket (`KalshiWebSocket.add_tickers`). Caps are 40 per page and 200 total. A frame carries bid, ask and depth at the ask (no bid depth), with no edge, size or fee.
+  - The ticket shows the live ask beside the preflight. A moved ask points at Re-read and never re-pins (Joe's answer, 2026-11-13); `canConfirm` is untouched. Each held leg on `/bets` shows bid and ask for the side held, with a Re-price prompt.
+  - kalshi-platform review: no path to an order. Its two display findings are fixed with tests: books are invalidated on a dropped connection, and sub-tenth levels are flagged rather than shown as none.
+- **Verified.**
+  - Each new guard was disabled once and its test failed (backend, Node client module and compose file).
+  - `next build` and `tsc` are clean.
+  - Full suite: 10,625 passed with one failure, `test_window_freshness_index`. It also fails on the untouched tree, because it pins a SQLite query plan and the sandbox's SQLite is 3.53.
+- **Not verified.** No live feed was seen in a browser: the demo has no hub, so the new lines render nothing there. Nothing is deployed; live deploys need Joe's typed confirmation.
+
+### Still open (adds to the list below)
+
+1. #435 — closed 2026-11-13, Joe's (A): rehearse first; carried by #438.
+2. #436 — after a live deploy of `5b10337`+, capture a market added mid-connection and confirm it gets a fresh book.
+
 ## 2026-11-12 (hundred-and-eighth session) — totals in four leagues deployed (#418); NHL totals priced where overtime cannot decide them (#430); totals refuse any shape but "YES above the line" (#431); college basketball's first slates read (#401, partial); live and demo on `993b714f`
 
 - **Deployed #418 first** (live 43319898316, demo 43320171527, both on `645e8fdb`). Live `/api/parlays` then carried six `KXNCAAMBTOTAL` legs on 6 of 9 cards: a league whose totals had parsed to `None`. #407 closed (all 11 children done).
@@ -669,6 +716,8 @@ Added 2026-09-18: this index listed only the archived entries while its
 own first line claimed every entry ever written, which is the gap the
 `lessons.md` split found the same morning. Newest first.
 
+- 2026-11-13 (hundred-and-tenth session) — Joe answered #435 (A), #427 (A) and #426 (C); #437's copy audited and fixed; the linker's overrides made exclusive (#434)
+- 2026-11-13 (hundred-and-ninth session) — ALSHI's architecture weighed: a serve-only home rehearsal (#435) and live Kalshi prices on the ticket and held legs (#436); on branch `claude/friendly-rubin-1g1903`, not deployed
 - 2026-11-12 (hundred-and-eighth session) — totals in four leagues deployed (#418); NHL totals priced where overtime cannot decide them (#430); totals refuse any shape but "YES above the line" (#431); college basketball's first slates read (#401, partial); live and demo on `993b714f`
 - 2026-11-11 (hundred-and-seventh session) — tailed parlays: the record sees the legs of a combination bought off the desk (ADR 0197, schema v69) and who it came from; live and demo on `850a0ff6`
 - 2026-10-30 (hundred-and-sixth session) — UI town hall: 26 findings, Joe's five (A)s, eight lanes merged; live and demo on `9a433e3e`

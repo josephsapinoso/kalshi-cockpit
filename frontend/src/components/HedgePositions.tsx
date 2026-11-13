@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 
 import {
   adoptVenueCombo,
@@ -18,7 +18,9 @@ import {
   type UnrecordedAtVenue,
 } from "@/lib/api";
 import { kalshiMarketUrl } from "@/lib/kalshiLink";
-import { describeQuoteAgeFloor } from "@/lib/format";
+import { describeQuoteAgeFloor, formatAge } from "@/lib/format";
+import { bookAgeMs } from "@/lib/liveBooks";
+import { useLiveBooks, type LiveBooks } from "@/lib/useLiveBooks";
 import { stakeBasisNote } from "@/lib/stakeBasisGloss";
 import { comboBookNote, COMBO_BOOK_ASK_POINTER } from "@/lib/comboBookGloss";
 import Term from "@/components/Term";
@@ -91,7 +93,15 @@ export default function HedgePositions({
    *  then no chips render. */
   pickSources?: PickSourcesBlock;
 }) {
+  // One stream for every live leg on the page, not one per ticket: a browser
+  // holds about six connections per host, and each open stream is one.
+  const live = useLiveBooks(
+    positions.flatMap((p) =>
+      p.legs.filter((l) => l.outcome === "pending").map((l) => l.ticker),
+    ),
+  );
   return (
+    <LiveLegs.Provider value={live}>
     <div className="mt-6 flex flex-col gap-4">
       <VenueCoverageBanner unrecorded={unrecordedAtVenue} />
       {positions.length === 0 ? (
@@ -110,6 +120,7 @@ export default function HedgePositions({
         />
       )}
     </div>
+    </LiveLegs.Provider>
   );
 }
 
@@ -351,6 +362,7 @@ function Position({
       </ol>
 
       <Hedge block={position.hedge} position={position} notes={notes} />
+      <RepriceLine position={position} />
 
       <Close position={position} />
     </section>
@@ -579,6 +591,7 @@ function Leg({ leg, maxQuoteAgeMs }: { leg: HeldLeg; maxQuoteAgeMs: number }) {
           </span>
         )}
       </span>
+      {leg.outcome === "pending" && <LiveLegLine leg={leg} />}
       {leg.outcome === "pending" ? (
         <LegControls leg={leg} />
       ) : (
@@ -589,6 +602,83 @@ function Leg({ leg, maxQuoteAgeMs }: { leg: HeldLeg; maxQuoteAgeMs: number }) {
         </span>
       )}
     </li>
+  );
+}
+
+/** The page's one live-book stream, shared by every leg row. */
+const LiveLegs = createContext<LiveBooks | null>(null);
+
+/**
+ * The leg's own Kalshi market now, for the side held: its bid and ask. Joe
+ * holds the parlay, not the leg, so these are not prices for his position
+ * (a combination's exit is its own book plus an RFQ; CLAUDE.md).
+ *
+ * Beside the recorded chance, never in place of it: the chance and the hedge
+ * figures are the server's, read when the page loaded. Renders nothing with
+ * no feed, for a leg with no Kalshi market, or before the first frame.
+ */
+function LiveLegLine({ leg }: { leg: HeldLeg }) {
+  const live = useContext(LiveLegs);
+  if (!live || live.status === "off" || live.status === "connecting" || !leg.ticker) {
+    return null;
+  }
+  if (live.status === "down" || live.status === "silent") {
+    return (
+      <span className="w-full text-[11px] text-muted">
+        Live feed {live.status}: treat the live prices on this page as frozen.
+      </span>
+    );
+  }
+  const book = live.state.books[leg.ticker];
+  if (!book) return null;
+  const yes = leg.side === "yes";
+  const finer = "finer than 0.1c";
+  const bid =
+    (yes ? book.yes_bid_display : book.no_bid_display) ??
+    ((yes ? book.yes_bid_unpriced : book.no_bid_unpriced) ? finer : null);
+  const ask =
+    (yes ? book.yes_ask_display : book.no_ask_display) ??
+    ((yes ? book.yes_ask_unpriced : book.no_ask_unpriced) ? finer : null);
+  const age = bookAgeMs(live.state, leg.ticker, live.now);
+  return (
+    <span className="w-full text-[11px] text-muted" aria-live="polite">
+      This leg&rsquo;s Kalshi market, {leg.side.toUpperCase()}:{" "}
+      <Term k="bid">bid</Term>{" "}
+      <span className="tabular">{bid ?? "none"}</span> &middot;{" "}
+      <Term k="ask">ask</Term> <span className="tabular">{ask ?? "none"}</span>
+      {age !== null && <> &middot; {formatAge(age)}</>}
+    </span>
+  );
+}
+
+/**
+ * Once a live price has arrived, says the hedge figures were priced when the
+ * page loaded and offers to price them again. The figures are never
+ * recomputed in the browser: re-pricing is the server's `/api/hedge` read.
+ */
+function RepriceLine({ position }: { position: HeldPosition }) {
+  const live = useContext(LiveLegs);
+  const router = useRouter();
+  if (!position.hedge || !live || live.status !== "live") return null;
+  const watched = position.legs.some(
+    (l) => l.outcome === "pending" && l.ticker && live.state.books[l.ticker],
+  );
+  if (!watched) return null;
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+      <span>
+        The hedge figures and each leg&rsquo;s chance above were read when
+        this page loaded; only the &ldquo;Kalshi market&rdquo; lines under the
+        legs are live.
+      </span>
+      <button
+        type="button"
+        onClick={() => router.refresh()}
+        className="min-h-9 rounded-lg border px-3 py-1.5 text-xs font-semibold text-foreground"
+      >
+        Re-price
+      </button>
+    </p>
   );
 }
 
