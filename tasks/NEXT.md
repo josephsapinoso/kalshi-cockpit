@@ -186,6 +186,11 @@ the channel diagnostic (A17.6/A17.11).
   - **#451 closed:** `docker-compose.live-home.yml` is dormant. It is the whole desk with `SERVE_ONLY=0` and its own volume, and builds only with `GIT_SHA` set. Its tests: `tests/test_live_home_compose.py`.
   - **Fly "before" reading** (21:39–22:09Z, laptop on the home network, live on `1a3e26b4`): 38 stalls in 1,544 requests (1 in 41), all 3.09–3.13 s. That is #193's stall, unchanged. `/api/slate` median 1,674 ms; `/api/signal` worst 18.8 s. The full table is in Joe's plan doc. The raw CSV stays out of the repo.
   - Opened #453–#459, the other Phase 2 items. #454 is Joe's (the Windows settings).
+  - **The host, read 2026-11-13: THIS laptop.** It is an MSI Raider GE66 running Windows 11 Home, with 32 GB of RAM and 179 GB free on C:. Docker Desktop and WSL are installed; Tailscale is not. It **stays home, plugged in** (Joe). Facts are on #454–#456.
+  - **Resume 2026-11-14 after 09:00 PST (Joe's limit reset):**
+    1. Joe installs Tailscale on the laptop and phone, turns on MagicDNS and HTTPS certificates, and creates the auth key for #452.
+    2. Then build #452, followed by #453, #455, #456, #458 and #459 (main). #454 is Joe's runbook.
+    3. #457 waits for cutover.
 0. #452 — heartbeat dead-man over the tailnet (main; needs Joe's Tailscale auth key).
 1. #448 — 2027-01-18: the first Australian Open tennis check on live (the November one is done; this is the second look, on a Slam).
 2. #347 — the dry engine's no-op work and dead routes (partner: leads the next session if the frontier stays thin).
