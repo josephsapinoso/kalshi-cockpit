@@ -302,3 +302,19 @@ class TestReviewFixes:
         for code in (tennis_serve.READ_FAILED, tennis_serve.ODDS_CALL_FAILED):
             words = parlay_check._reason_words(code)
             assert words and words != code
+
+
+class TestTheLegIsNamedByItsPlayers:
+    """Found on the first live check, 2026-11-13: a tennis leg has no
+    `kalshi_markets` title on this instance, so it was labelled with its raw
+    ticker."""
+
+    async def test_a_yes_leg_reads_as_the_player_to_beat_the_other(self, conn):
+        _store_link_and_reading(conn)
+        _, legs = await _check(conn, [_tennis_leg(), _ml_leg(conn, FRESH_NOW)])
+        assert legs[(AND_T, "yes")]["label"] == "Mirra Andreeva to beat Karolina Muchova"
+
+    async def test_a_no_leg_reads_as_the_other_player_to_win(self, conn):
+        _store_link_and_reading(conn)
+        _, legs = await _check(conn, [_tennis_leg(AND_T, "no"), _ml_leg(conn, FRESH_NOW)])
+        assert legs[(AND_T, "no")]["label"] == "Karolina Muchova to beat Mirra Andreeva"

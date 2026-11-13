@@ -609,6 +609,9 @@ class _TennisRead:
     books_used: Optional[list] = None
     anchored_on_sharp: Optional[bool] = None
     want_buy: Optional[tuple] = None  # (sport_key, odds_event_id | None)
+    # The leg in players' names, from the link, when this instance has no
+    # market title for it (tennis is outside discovery, so it never does).
+    label: Optional[str] = None
 
 
 #: Series prefixes that name tennis even when the series is not a priced
@@ -620,6 +623,15 @@ def _is_tennis_series(market_ticker: str, cls: "tennis.SeriesClass") -> bool:
     if cls.tier is not None or cls.reason == tennis.NO_SPORTSBOOK_TOURNAMENT:
         return True
     return str(market_ticker).split("-")[0].startswith(_TENNIS_SERIES_PREFIXES)
+
+
+def _tennis_label(player: str, players: Sequence[str], side: str) -> str:
+    """"Mirra Andreeva to beat Diana Shnaider", or, on a NO leg, the other
+    player to beat her -- exact for a two-player match winner. Settlement
+    edge cases (a match never played) are the settlement note's to say."""
+    others = [p for p in players if p != player]
+    other = others[0] if others else "the other player"
+    return f"{player} to beat {other}" if side != "no" else f"{other} to beat {player}"
 
 
 def _tennis_read(
@@ -677,9 +689,12 @@ def _tennis_read(
     player = link.player_for(market_ticker)
     if player is None:
         return _TennisRead(code=tennis.UNREADABLE_EVENT, commence_ms=commence_ms)
+    words = _tennis_label(player, link.players, side)
+    if label in (market_ticker, f"NO -- {market_ticker}"):
+        label = words
     reading = tennis.price_leg(rows, link.players, side, player)
     if reading.chance is None:
-        return _TennisRead(code=reading.reason, commence_ms=commence_ms)
+        return _TennisRead(code=reading.reason, commence_ms=commence_ms, label=label)
 
     used = set(reading.books_used)
     stamps = [
@@ -715,6 +730,7 @@ def _tennis_read(
             code=code,
             commence_ms=commence_ms,
             want_buy=(sport_key, link.odds_event_id) if code == "stale_consensus" else None,
+            label=label,
         )
     return _TennisRead(
         chance=reading.chance,
@@ -722,6 +738,7 @@ def _tennis_read(
         candidate=candidate,
         books_used=list(reading.books_used),
         anchored_on_sharp=reading.anchored_on_sharp,
+        label=label,
     )
 
 
@@ -1019,6 +1036,8 @@ async def check_parlay_text(
         )
         if tennis_read is not None:
             commence_ms = tennis_read.commence_ms
+            if tennis_read.label:
+                label = tennis_read.label
             unknown_reason_code = tennis_read.code
             chance = tennis_read.chance
             if tennis_read.candidate is not None:
