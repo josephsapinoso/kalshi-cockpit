@@ -181,8 +181,11 @@ the channel diagnostic (A17.6/A17.11).
 **PRIORITY FROM HERE ON (Joe, 2026-11-13): the move of live off Fly to the home desktop comes before any betting work.** The plan, phases 0 to 4, is Joe's private Claude Doc "Kalshi cockpit: migration to the home desktop" (private to him; the link is in session memory, not this public file). The queue is epic **#449**. Betting tickets wait unless live is broken.
 
 0. #449 — **Decided 2026-11-13: move, without the rehearsal** (Joe; #438 closed as superseded, #435 superseded in part). The form is Docker on WSL2 over Tailscale. Joe's first steps are the desktop RAM, disk and edition, the always-on answer, and the Docker and Tailscale installs. Mine is a Fly "before" speed reading (a record, not a gate).
-0. #450 — config parity script and test (Sonnet lane; changes nothing on live).
-0. #451 — dormant live compose file (main; after #450).
+- **Phase 2 started 2026-11-13 evening.**
+  - **#450 closed:** `scripts/home_env_from_fly.py` generates `deploy/home/live.env.example`, 35 keys from `fly.live.toml [env]`. It refuses secret-shaped keys, and a drift test guards the file.
+  - **#451 closed:** `docker-compose.live-home.yml` is dormant. It is the whole desk with `SERVE_ONLY=0` and its own volume, and builds only with `GIT_SHA` set. Its tests: `tests/test_live_home_compose.py`.
+  - **Fly "before" reading** (21:39–22:09Z, laptop on the home network, live on `1a3e26b4`): 38 stalls in 1,544 requests (1 in 41), all 3.09–3.13 s. That is #193's stall, unchanged. `/api/slate` median 1,674 ms; `/api/signal` worst 18.8 s. The full table is in Joe's plan doc. The raw CSV stays out of the repo.
+  - Opened #453–#459, the other Phase 2 items. #454 is Joe's (the Windows settings).
 0. #452 — heartbeat dead-man over the tailnet (main; needs Joe's Tailscale auth key).
 1. #448 — 2027-01-18: the first Australian Open tennis check on live (the November one is done; this is the second look, on a Slam).
 2. #347 — the dry engine's no-op work and dead routes (partner: leads the next session if the frontier stays thin).
