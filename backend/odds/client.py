@@ -34,6 +34,11 @@ from ..kalshi.props import ALTERNATE_SUFFIX
 from .budget import CreditBudget, sweep_cost
 from .sweeplog import FAILED, REFUSED, record_sweep_outcome
 
+#: `api_credits.trigger` for an on-demand call. The same literal as
+#: `timing.MANUAL`, which `_SERVED_SWEEP` excludes; not imported from there
+#: because `timing` is the planner and this is the client. A test pins the two.
+MANUAL_TRIGGER = "manual"
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_S = 20.0
@@ -632,6 +637,61 @@ class OddsClient:
                 self._parse([response.json()], sport_key=sport_key, fetched_ms=now_ms)
             )
         return quotes
+
+    async def _free_get(
+        self, path: str, *, now_ms: int, sport_key: Optional[str], **params: Any
+    ) -> Any:
+        """One call to an endpoint the vendor does not bill (`/sports`,
+        `/sports/{key}/events`; `x-requests-last: 0`, measured 2026-11-13).
+
+        **Recorded anyway**, at the cost the vendor's own `x-requests-last`
+        header reports (0 when absent), so that if these ever start to bill
+        the ledger shows it rather than the vendor's invoice. The endpoints do
+        not end in `/odds`, so `_SERVED_SWEEP` never reads them as a sweep.
+        Raises `OddsAPIError` on a 4xx/5xx.
+        """
+        url = f"{self.base_url}{path}"
+        response = await self.client.get(
+            url, params={"apiKey": self.config.api_key, **params}
+        )
+        self.budget.record(
+            called_ms=now_ms,
+            endpoint=path,
+            cost=_int_header(response, "x-requests-last") or 0,
+            sport_key=sport_key,
+            remaining_reported=_int_header(response, "x-requests-remaining"),
+            used_reported=_int_header(response, "x-requests-used"),
+            trigger=MANUAL_TRIGGER,
+            http_status=response.status_code,
+        )
+        if response.status_code >= 400:
+            if response.status_code == 429:
+                raise QuotaExhausted(429, url, response.text)
+            raise OddsAPIError(response.status_code, url, response.text)
+        return response.json()
+
+    async def fetch_active_sport_keys(self, *, now_ms: int, prefix: str) -> list[str]:
+        """Active sport keys starting with `prefix` (free). Tennis is keyed per
+        tournament, so which keys exist changes week to week (#439)."""
+        payload = await self._free_get("/sports", now_ms=now_ms, sport_key=None)
+        if not isinstance(payload, list):
+            return []
+        return sorted(
+            s["key"]
+            for s in payload
+            if isinstance(s, dict)
+            and isinstance(s.get("key"), str)
+            and s["key"].startswith(prefix)
+            and s.get("active") is True
+        )
+
+    async def fetch_events(self, sport_key: str, *, now_ms: int) -> list[dict]:
+        """`/sports/{key}/events`: the fixtures, no prices (free)."""
+        payload = await self._free_get(
+            f"/sports/{sport_key}/events", now_ms=now_ms, sport_key=sport_key,
+            dateFormat="iso",
+        )
+        return [e for e in payload if isinstance(e, dict)] if isinstance(payload, list) else []
 
     def _parse(
         self, payload: Any, *, sport_key: str, fetched_ms: int

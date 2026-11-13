@@ -108,7 +108,8 @@ from backend.notify.alerts import Alerter, FAILURE_LOOP_DIED  # noqa: E402
 from backend.notify.discord import DiscordConfig, DiscordNotifier  # noqa: E402
 from backend.odds.budget import CreditBudget  # noqa: E402
 from backend.portfolio_poll import poll_portfolio_forever  # noqa: E402
-from backend.odds.client import OddsClient  # noqa: E402
+from backend.odds.client import OddsClient, QuotaExhausted  # noqa: E402
+from backend import tennis_serve  # noqa: E402
 from backend.odds import attention, ondemand  # noqa: E402
 from backend.odds.timing import (  # noqa: E402
     DEFAULT_DAY_START_UTC_HOUR,
@@ -1011,29 +1012,41 @@ async def main() -> int:
             log.warning("loop failure recorded as %s -- see %s",
                         outcome, failure_log)
 
-    def take_refresh_requests(stamp: int) -> list[ManualRefresh]:
+    def take_refresh_requests(
+        stamp: int,
+    ) -> tuple[list[ManualRefresh], list[ondemand.RefreshRequest]]:
         """Taps this pass should serve, and move the watermark past them.
 
         `ondemand.take` does not modify the file -- the API is its only writer
         -- so nothing but this watermark stops a request being served on every
         pass until it ages out. It is moved *before* the pass spends, so a pass
         that dies mid-sweep does not leave the request to be bought again.
+
+        **Tennis comes back separately and never becomes a `ManualRefresh`**
+        (#445): it is not a sweep of a sport `decide_sweeps` knows, and its
+        reading must not reach `odds_snapshots`. `backend/tennis_serve.py`
+        serves it.
         """
         due = ondemand.take(refresh_inbox, now_ms=stamp, after_ms=served_after[0])
         if not due:
-            return []
+            return [], []
         served_after[0] = max(r.requested_ms for r in due)
+        tennis_due = [r for r in due if r.kind == ondemand.KIND_TENNIS]
+        due = [r for r in due if r.kind != ondemand.KIND_TENNIS]
         log.info(
             "serving %d on-demand odds refresh(es): %s",
             len(due),
             ", ".join(
-                f"{r.sport_key}"
-                + (
-                    f"/alt:{r.odds_event_id}"
-                    if r.kind == ondemand.KIND_ALT_LINES
-                    else (f"/props:{r.odds_event_id}" if r.odds_event_id else "")
-                )
-                for r in due
+                [
+                    f"{r.sport_key}"
+                    + (
+                        f"/alt:{r.odds_event_id}"
+                        if r.kind == ondemand.KIND_ALT_LINES
+                        else (f"/props:{r.odds_event_id}" if r.odds_event_id else "")
+                    )
+                    for r in due
+                ]
+                + [f"tennis:{r.kalshi_event_ticker}" for r in tennis_due]
             ),
         )
         return [
@@ -1043,7 +1056,31 @@ async def main() -> int:
                 alt_lines=r.kind == ondemand.KIND_ALT_LINES,
             )
             for r in due
-        ]
+        ], tennis_due
+
+    async def serve_tennis_taps(tennis_due, stamp: int) -> None:
+        """Serve this pass's tennis checks before the quote pass (#445).
+
+        Best-effort: a failure here is logged and the quote pass still runs,
+        except `QuotaExhausted`, which reaches the loop as it does from every
+        other spender.
+        """
+        if not tennis_due:
+            return
+        try:
+            served = await tennis_serve.serve(
+                conn, tennis_due, kalshi=kalshi, odds=odds, now_ms=stamp
+            )
+        except QuotaExhausted:
+            raise
+        except Exception:  # noqa: BLE001 -- never cost the pass its quotes
+            log.exception("serving tennis checks failed")
+            return
+        for s in served:
+            log.info(
+                "tennis check %s: %s (%d rows, %d credits)",
+                s.kalshi_event_ticker, s.outcome, s.rows_stored, s.credits_spent,
+            )
 
     # Two limits on one quantity. ADR 0019 section 6. Raises rather than warns:
     # the loop is the process that spends odds credits against this window, and
@@ -1659,6 +1696,8 @@ async def main() -> int:
                 # desk on 2026-08-27, measured, while `window_status` promised
                 # a sweep was due now. `follows_early_wake` is consumed on
                 # read; see it for why a one-shot and not `is_attended`.
+                manual, tennis_due = take_refresh_requests(stamp)
+                await serve_tennis_taps(tennis_due, stamp)
                 counts = await run_quote_pass(
                     conn, kalshi, odds_client=odds, budget=budget,
                     config=odds_config,
@@ -1669,7 +1708,7 @@ async def main() -> int:
                     # is what makes a request served once: the inbox file is
                     # written by the API and never by us -- see
                     # `backend/odds/ondemand.py` for why it is single-writer.
-                    manual=take_refresh_requests(stamp),
+                    manual=manual,
                     # Passed explicitly rather than derived, and that is still
                     # true now the pass takes an `OddsConfig`: this is the site
                     # that would silently fall back to the constant. It runs ~96

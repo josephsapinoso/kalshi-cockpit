@@ -1227,23 +1227,6 @@ DISPOSITIONS: dict[str, Tool | Quarantined] = {
     # many words, pinned (until #344 deleted the block) by the Playbook's former "Historian has never run" test; now `TestThePlaybookDrawsNothingThatCannotFill`.
     # The class below therefore holds the two model files only, and
     # `_unmetered_but_unreachable()` has no member.
-    "backend/store/tennis_readings.py": Quarantined(
-        reason="#445 commit A: the tennis link and reading tables' store, "
-               "landed before the runner that writes it so #446 can build "
-               "against its read functions.",
-        revive_if="#445 commit B serves KIND_TENNIS from scripts/run_loop.py; "
-                  "this row then goes red and is deleted in that change.",
-        adr="docs/adr/0022-quarantine-the-orphaned-modules.md",
-    ),
-    "backend/tennis.py": Quarantined(
-        reason="#444's pure tennis link steps (classify, read event, link, "
-               "devig), built ahead of their caller. Nothing buys or stores a "
-               "tennis reading yet (#445), and the check does not read one "
-               "(#446).",
-        revive_if="#446 wires `parlay_check` to it; this row then goes red by "
-                  "the back-door test and is deleted in that change.",
-        adr="docs/adr/0022-quarantine-the-orphaned-modules.md",
-    ),
     "backend/model/elo.py": Quarantined(
         reason="The in-house power-ratings model. CLAUDE.md's opening section "
                "exists because this was twice described as a live second "

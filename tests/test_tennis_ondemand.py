@@ -189,3 +189,244 @@ class TestTheReadingTable:
         q = _captured_quotes()[0]
         lay = q.__class__(**{**q.__dict__, "market": "h2h_lay"})
         assert tr.write_snapshots(conn, [lay]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Serving (commit B): the runner's half, on captures, through the real client
+# ---------------------------------------------------------------------------
+
+BASE = "https://odds.test/v4"
+BOOKS = [
+    "pinnacle", "matchbook", "betfair_ex_eu", "fanduel", "draftkings",
+    "williamhill_us", "fanatics", "sport888", "bovada", "betmgm",
+]
+LEG_EVENT = "KXWTAMATCH-26NOV13SABSVI"
+LEG_MARKET = "KXWTAMATCH-26NOV13SABSVI-SAB"
+
+
+def _fx(name):
+    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+SERVE_NOW = _fx("odds_tennis_event_h2h.json")["captured_ms"]
+
+
+class FakeKalshi:
+    """Answers the one public read with the captured single-event payload."""
+
+    def __init__(self):
+        self.paths: list[str] = []
+
+    async def get(self, path, **params):
+        self.paths.append(path)
+        assert params.get("with_nested_markets") == "true"
+        return _fx("kalshi_tennis_single_event.json")["response"]
+
+
+def _odds_handler(calls, *, event_body=None):
+    import httpx
+
+    def handler(request):
+        calls.append(request.url.path)
+        path = request.url.path.removeprefix("/v4")
+        free = {"x-requests-last": "0"}
+        if path == "/sports":
+            return httpx.Response(200, json=_fx("odds_tennis_sports.json")["sports"], headers=free)
+        if path == "/sports/tennis_wta_finals/events":
+            return httpx.Response(
+                200, json=_fx("odds_tennis_events_list.json")["events"], headers=free
+            )
+        if path.endswith("/events"):
+            return httpx.Response(200, json=[], headers=free)
+        if path.endswith("/odds"):
+            body = event_body if event_body is not None else _fx("odds_tennis_event_h2h.json")["event"]
+            return httpx.Response(200, json=body, headers={"x-requests-last": "1"})
+        return httpx.Response(404)
+
+    return handler
+
+
+@pytest.fixture
+def odds_calls():
+    return []
+
+
+def _odds_client(conn, calls, **kw):
+    import httpx
+
+    from backend.config import OddsConfig
+    from backend.odds.budget import CreditBudget
+    from backend.odds.client import OddsClient
+
+    cfg = OddsConfig(
+        api_key="test-odds-key", base_url=BASE, daily_credit_budget=800,
+        regions=["us"], markets=["h2h", "spreads", "totals"], bookmakers=BOOKS,
+    )
+    return OddsClient(
+        cfg, CreditBudget(conn, daily_budget=800),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(_odds_handler(calls, **kw))),
+    )
+
+
+def _request(market=LEG_MARKET, event=LEG_EVENT):
+    return ondemand.RefreshRequest(
+        sport_key="tennis_wta", odds_event_id=None, requested_ms=SERVE_NOW - 1,
+        estimated_credits=1, kind=ondemand.KIND_TENNIS,
+        kalshi_event_ticker=event, market_ticker=market,
+    )
+
+
+async def _serve(conn, calls, req=None, **kw):
+    from backend import tennis_serve
+
+    async with _odds_client(conn, calls, **kw) as odds:
+        return await tennis_serve.serve(
+            conn, [req or _request()], kalshi=FakeKalshi(), odds=odds, now_ms=SERVE_NOW
+        )
+
+
+class TestTheRunnerServesATennisCheck:
+    async def test_a_main_tour_match_is_linked_bought_once_and_stored(self, conn, odds_calls):
+        [served] = await _serve(conn, odds_calls)
+        assert served.outcome == "linked" and served.credits_spent == 1
+        assert sum(1 for p in odds_calls if p.endswith("/odds")) == 1
+        link = tr.read_link(conn, LEG_EVENT, now_ms=SERVE_NOW)
+        assert link.linked and link.sport_key == "tennis_wta_finals"
+        assert link.player_for(LEG_MARKET) == "Aryna Sabalenka"
+        rows = tr.latest_reading_rows(conn, link.odds_event_id)
+        assert rows
+        from backend.tennis import price_leg
+
+        reading = price_leg(rows, link.players, "yes", link.player_for(LEG_MARKET))
+        assert reading.reason is None and 0 < reading.chance < 1
+
+    async def test_the_paid_call_is_on_the_ledger_as_manual(self, conn, odds_calls):
+        await _serve(conn, odds_calls)
+        paid = conn.execute(
+            "SELECT cost, trigger FROM api_credits WHERE endpoint LIKE '%/odds'"
+        ).fetchall()
+        assert [tuple(r) for r in paid] == [(1, "manual")]
+
+    async def test_a_challenger_leg_is_refused_without_a_single_call(self, conn, odds_calls):
+        [served] = await _serve(
+            conn, odds_calls,
+            _request(market="KXATPCHALLENGERMATCH-X-A", event="KXATPCHALLENGERMATCH-X"),
+        )
+        assert served.outcome == "tennis_no_sportsbook_tournament"
+        assert odds_calls == []
+        link = tr.read_link(conn, "KXATPCHALLENGERMATCH-X", now_ms=SERVE_NOW)
+        assert link.expires_ms == SERVE_NOW + tr.FREE_REFUSAL_TTL_MS
+
+    async def test_an_empty_book_after_the_paid_call_stands_an_hour(self, conn, odds_calls):
+        body = {**_fx("odds_tennis_event_h2h.json")["event"], "bookmakers": []}
+        [served] = await _serve(conn, odds_calls, event_body=body)
+        assert served.outcome == "no_two_sided_book" and served.credits_spent == 1
+        link = tr.read_link(conn, LEG_EVENT, now_ms=SERVE_NOW + tr.FREE_REFUSAL_TTL_MS + 1)
+        assert link is not None and link.expires_ms == SERVE_NOW + tr.PAID_REFUSAL_TTL_MS
+
+    async def test_two_requests_for_one_match_buy_it_once(self, conn, odds_calls):
+        from backend import tennis_serve
+
+        async with _odds_client(conn, odds_calls) as odds:
+            served = await tennis_serve.serve(
+                conn, [_request(), _request(market="KXWTAMATCH-26NOV13SABSVI-SVI")],
+                kalshi=FakeKalshi(), odds=odds, now_ms=SERVE_NOW,
+            )
+        assert len(served) == 1
+        assert sum(1 for p in odds_calls if p.endswith("/odds")) == 1
+
+
+# ---------------------------------------------------------------------------
+# Isolation (#439 design, "Isolation tests"): the four assertions
+# ---------------------------------------------------------------------------
+
+def _no_tennis_fixture(conn):
+    from backend.odds.timing import upcoming_fixtures_by_sport
+
+    keys = upcoming_fixtures_by_sport(conn, now_ms=SERVE_NOW)
+    return not any(k.startswith("tennis") for k in keys)
+
+
+def _planner_fires_no_tennis(conn):
+    from backend.odds.budget import CreditBudget
+    from backend.odds.timing import decide_sweeps
+
+    decision = decide_sweeps(
+        conn, in_scope={}, budget=CreditBudget(conn, daily_budget=800), cost=3,
+        now_ms=SERVE_NOW, max_odds_age_ms=900_000,
+    )
+    return not any(f.sport_key.startswith("tennis") for f in decision.fire)
+
+
+async def _refresh_card_lists_no_tennis(db_path, now_ms):
+    import httpx
+
+    from backend.api.routes import create_app
+    from backend.config import AppConfig
+
+    app = create_app(AppConfig(instance_mode="live", db_path=db_path))
+    transport = httpx.ASGITransport(app=app)
+    real_now = db.now_ms
+    db.now_ms = lambda: now_ms
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            payload = (await c.get("/api/odds/refreshable")).json()
+    finally:
+        db.now_ms = real_now
+    return not any(s["sport_key"].startswith("tennis") for s in payload.get("sports", []))
+
+
+def _no_fair_price(conn):
+    # `fair_prices` hangs off `event_links`; tennis has no link row there, so
+    # neither table may hold one for this match.
+    links = conn.execute(
+        "SELECT COUNT(*) FROM event_links WHERE kalshi_event_ticker = ?", (LEG_EVENT,)
+    ).fetchone()[0]
+    return links == 0 and conn.execute("SELECT COUNT(*) FROM fair_prices").fetchone()[0] == 0
+
+
+class TestATennisBuyReachesNothingElse:
+    async def test_after_a_buy_the_planner_the_card_and_fair_prices_see_no_tennis(
+        self, tmp_path, odds_calls
+    ):
+        path = tmp_path / "iso.db"
+        conn = db.init_db(path)
+        [served] = await _serve(conn, odds_calls)
+        assert served.outcome == "linked"
+        assert _no_tennis_fixture(conn)
+        assert _planner_fires_no_tennis(conn)
+        assert _no_fair_price(conn)
+        conn.close()
+        assert await _refresh_card_lists_no_tennis(path, SERVE_NOW)
+
+    async def test_the_checks_catch_a_reading_written_to_odds_snapshots(
+        self, tmp_path, odds_calls, monkeypatch
+    ):
+        """The mutation, run every time: the same buy with its reading written
+        to `odds_snapshots` must turn the first three checks red. If it does
+        not, the isolation test above proves nothing."""
+        from backend import tennis_serve
+        from backend.odds.client import store_quotes
+
+        real = tr.write_snapshots
+
+        def into_odds_snapshots(conn, quotes):
+            store_quotes(conn, quotes)
+            return real(conn, quotes)
+
+        monkeypatch.setattr(tennis_serve.tr, "write_snapshots", into_odds_snapshots)
+        path = tmp_path / "mut.db"
+        conn = db.init_db(path)
+        await _serve(conn, odds_calls)
+        assert not _no_tennis_fixture(conn)
+        assert not _planner_fires_no_tennis(conn)
+        conn.close()
+        assert not await _refresh_card_lists_no_tennis(path, SERVE_NOW)
+
+
+class TestTheTriggerLiteral:
+    def test_the_client_and_the_planner_agree_on_manual(self):
+        from backend.odds.client import MANUAL_TRIGGER
+        from backend.odds.timing import MANUAL
+
+        assert MANUAL_TRIGGER == MANUAL
