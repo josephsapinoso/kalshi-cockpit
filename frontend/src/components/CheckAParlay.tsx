@@ -281,19 +281,24 @@ function CheckedResult({ value }: { value: CheckedParlayResult }) {
             {/* #303: a chance read off the books' other lines says so, and
                 says how many books spoke -- often fewer than the main line. */}
             {/* #446: a tennis chance is the sportsbooks' match-winner price
-                for this player. Books used and the anchor are facts on the
-                row; a sharp anchor is the thinner read, never a quality
-                mark. */}
+                for this player, with how many books spoke. When no sharp book
+                backed it, say so in accent ink like every other price surface
+                (tests/test_soft_fallback_is_shown_on_every_price_surface.py):
+                most tennis readings are soft-book consensus. */}
             {isTennis && leg.books_used && (
               <p className="text-xs text-muted">
                 From the sportsbooks’ match-winner price ·{" "}
                 {leg.books_used.length}{" "}
                 {leg.books_used.length === 1 ? "book" : "books"}
                 {leg.anchored_on_sharp === true
-                  ? " · anchored on the sharpest books"
-                  : leg.anchored_on_sharp === false
-                    ? " · all books"
-                    : ""}
+                  ? " · anchored on the sharp books"
+                  : ""}
+              </p>
+            )}
+            {isTennis && leg.books_used && leg.anchored_on_sharp === false && (
+              <p className="text-xs text-accent-2">
+                No sharp book behind this price — it is the soft-book
+                consensus.
               </p>
             )}
             {isTennis && leg.settlement_note && (

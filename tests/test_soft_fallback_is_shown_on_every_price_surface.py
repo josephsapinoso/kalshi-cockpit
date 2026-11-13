@@ -57,6 +57,9 @@ PARLAY_CARDS = FRONTEND / "components" / "ParlayCards.tsx"
 SLATE_PAGE = FRONTEND / "app" / "slate" / "page.tsx"
 PICKS = FRONTEND / "components" / "GoodChancePicks.tsx"
 CONSENSUS = FRONTEND / "components" / "ConsensusPanel.tsx"
+#: Check this parlay's tennis leg (#446): a chance read straight off the
+#: sportsbooks' match-winner prices, most of them with no sharp book.
+CHECK_A_PARLAY = FRONTEND / "components" / "CheckAParlay.tsx"
 
 #: Every surface that puts a consensus-derived price in front of Joe and
 #: therefore owes him the caveat.
@@ -71,6 +74,7 @@ PRICE_SURFACES = [
     pytest.param(SLATE_PAGE, id="slate-page"),
     pytest.param(PICKS, id="GoodChancePicks"),
     pytest.param(CONSENSUS, id="ConsensusPanel"),
+    pytest.param(CHECK_A_PARLAY, id="CheckAParlay"),
 ]
 
 #: Surfaces that read the flag to AGGREGATE it rather than to price a row.
