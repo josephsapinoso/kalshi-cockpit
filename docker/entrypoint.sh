@@ -22,6 +22,45 @@ DB_PATH="${DB_PATH:-/data/cockpit.db}"
 echo "[entrypoint] instance_mode=${INSTANCE_MODE} db=${DB_PATH}"
 
 # ---------------------------------------------------------------------------
+# Serve-only rehearsal: a copy of the live database, served and never recorded.
+#
+# **Why this exists.** Moving live off Fly is gated on a measured rehearsal
+# (docs/runbooks/home-rehearsal.md): the same pages timed against Fly and
+# against a copy on the home machine, in the same window. That copy must not be
+# a second live instance. Two chain runners would double-spend the odds credit
+# budget and the Kalshi rate limit and write two diverging records, and a copy
+# holding the key would carry the armed hand-bet path, where a tap on the wrong
+# tab is a real order recorded in a database nobody reads again.
+#
+# So SERVE_ONLY=1 is one flag with its invariants enforced here, not two
+# switches that can be set half-way:
+#   - the chain runner is not started (nothing is recorded);
+#   - KALSHI_PUBLIC_READ_ONLY=true is required, so every credentialed path
+#     (balance, fills, orders, RFQ) refuses with KalshiCredentialsRequired by
+#     construction (backend/config.py KalshiConfig.load);
+#   - KALSHI_PRIVATE_KEY_B64 being set is a boot refusal, not ignored: a key
+#     present on a box meant to hold none is the misconfiguration to catch.
+# ---------------------------------------------------------------------------
+SERVE_ONLY="${SERVE_ONLY:-0}"
+if [ "${SERVE_ONLY}" = "1" ]; then
+  if [ "${KALSHI_PUBLIC_READ_ONLY:-}" != "true" ]; then
+    echo "[entrypoint] SERVE_ONLY=1 requires KALSHI_PUBLIC_READ_ONLY=true."
+    echo "[entrypoint] A serve-only copy must hold no Kalshi credentials."
+    exit 1
+  fi
+  if [ -n "${KALSHI_PRIVATE_KEY_B64:-}" ]; then
+    echo "[entrypoint] SERVE_ONLY=1 but KALSHI_PRIVATE_KEY_B64 is set. Refusing."
+    echo "[entrypoint] Remove the key from this machine's env; a rehearsal copy"
+    echo "[entrypoint] must not be able to place an order."
+    exit 1
+  fi
+  echo "[entrypoint] SERVE_ONLY=1 -- serving a copy: no key, no chain runner"
+elif [ "${SERVE_ONLY}" != "0" ]; then
+  echo "[entrypoint] SERVE_ONLY=${SERVE_ONLY} must be 0 or 1."
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Maintenance hold: keep the container alive when the normal boot cannot run.
 #
 # **Why this exists.** On 2026-08-16 the live volume filled. `migrate_db.py` is
@@ -107,7 +146,7 @@ python scripts/migrate_db.py --db "${DB_PATH}"
 # Nothing here echoes the key or any part of it. `set -x` must never be added to
 # this script.
 # ---------------------------------------------------------------------------
-if [ "${INSTANCE_MODE}" != "demo" ]; then
+if [ "${INSTANCE_MODE}" != "demo" ] && [ "${SERVE_ONLY}" != "1" ]; then
   if [ -z "${KALSHI_PRIVATE_KEY_B64:-}" ]; then
     echo "[entrypoint] KALSHI_PRIVATE_KEY_B64 is not set."
     echo "[entrypoint] Set it with:"
@@ -350,7 +389,9 @@ pids="${pids} ${frontend_pid}"
 # instance that serves pages without running this looks completely healthy
 # while making no progress at all toward answering the project's question.
 loop_pid=""
-if [ "${INSTANCE_MODE}" != "demo" ]; then
+if [ "${SERVE_ONLY}" = "1" ]; then
+  echo "[entrypoint] serve-only copy -- chain runner not started (nothing is recorded)"
+elif [ "${INSTANCE_MODE}" != "demo" ]; then
   echo "[entrypoint] starting chain runner (full=${RUNNER_INTERVAL_S:-900}s quote=${RUNNER_FAST_INTERVAL_S:-15}s)"
   python scripts/run_loop.py \
     --db "${DB_PATH}" --interval "${RUNNER_INTERVAL_S:-900}" \

@@ -2070,6 +2070,8 @@ class TestTheEntrypointRunsWhatItMustRunFirst:
         "scripts/inspect_live_proc.py",
         "scripts/fetch_live_route.py",
         "scripts/probe_loopback_latency.py",
+        # The home rehearsal's database copy (docs/runbooks/home-rehearsal.md).
+        "scripts/snapshot_live_db.py",
     )
 
     def test_every_script_the_ssh_ruling_invokes_survives_dockerignore(self):
