@@ -152,7 +152,7 @@ the channel diagnostic (A17.6/A17.11).
 
 ### Still open (adds to the list below; #430 and #431 above are closed)
 
-1. Question for Joe: your tailed-parlays page ends with four desk suggestions (A-D) — which do you want built? — #432
+1. ~~#432~~ answered **C D** by Joe 2026-11-12 and built (`9f6787ed`, live and demo). On Your bets, each population now has a total line with expected wins and a range, and the off-desk view has its own price bands (C). Beside each total sits the top winners' profit and the net had the top 3 lost, with the fee counted (D). measurement-skeptic: PASS WITH FIXES, applied. Verified on live: both populations serve the blocks, and `/bets?population=off_desk` renders them. A and B were not wanted.
 2. #401 — the sweep-log / credits-day refusal read for 11-02..11-12; needs `fly auth login` on the laptop, or a counts-only refusal instrument in `instrument.yml`.
 3. ~~#433~~ closed 2026-11-12 (`f19c59a0`): `board.py` marks a frontier ticket OVERDUE when the date in its TITLE has passed. It reads the title only; the body version flagged #347 and #360 on cited dates. Laptop-side, no deploy.
 4. #434 — linker: should an alias be exclusive (Tennessee St. at Tennessee cannot link).
