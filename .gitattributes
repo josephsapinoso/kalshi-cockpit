@@ -24,3 +24,4 @@ docker/*        text eol=lf
 # Captured API payloads are the wire-format contract. Diffing them is rarely
 # useful and they must never be munged.
 tests/fixtures/*.json  -text -diff
+deploy/home/*.env.example text eol=lf
