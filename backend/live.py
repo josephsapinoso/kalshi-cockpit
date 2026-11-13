@@ -90,6 +90,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
@@ -121,6 +122,80 @@ RESUBSCRIBE_S = 120.0
 # purpose: a client that cannot keep up with ten quotes has no business being
 # sent the eleventh, and the newest frame is the only one that matters.
 CLIENT_QUEUE_SIZE = 32
+
+# **Watched tickers: the second kind of subscription.** `open_decisions` streams
+# engine rows sized above zero, and at the deployed balance every such row sizes
+# to zero, so on live that stream is idle. What Joe looks at -- the hand-bet
+# ticket and the legs he holds -- are arbitrary markets, so a browser may also
+# name the tickers on its screen and receive their top of book: bid, ask and
+# depth, with no edge, no size and no fair value. That keeps the arithmetic in
+# Python (the module docstring's rule): the ticket's fee and break-even stay the
+# server's preflight, and a moved ask is shown beside them, never folded in.
+#
+# Both caps bound what one cookie can make the shared socket subscribe to. A
+# market page needs one ticker and a held parlay a handful; 40 is generous.
+MAX_WATCHED_PER_CLIENT = 40
+MAX_WATCHED_TOTAL = 200
+# Kalshi market tickers: upper-case letters, digits, '-', '.' and '_'
+# (e.g. `KXMLBGAME-26JUL031905NYYBOS-NYY`). Anything else is refused before it
+# reaches the socket.
+TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9._-]{1,127}$")
+
+
+class WatchRefused(ValueError):
+    """A watch request the hub will not serve. `status` is the HTTP code."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+def book_frame(book: OrderBook) -> Optional[dict[str, Any]]:
+    """The top of one book as a frame, or `None` when it cannot be priced from.
+
+    An invalid book (a sequence gap, mid-resync) and a book with no valid ask on
+    either side both answer `None`, for the reason `price_against` gives: the
+    honest output is silence, and the last frame stays on screen with its age.
+    One side missing is not silence -- a market with only a YES ask still has a
+    YES price -- so each side is `None` on its own.
+
+    **`None` with `_unpriced` true is a different fact from `None` alone**
+    (review D7, `OrderBook.has_unpriced_interest`): a level rests there at a
+    price finer than a tenth of a cent, which this desk refuses to round. A
+    YES ask is the complement of the best NO bid, so it is unpriced when the
+    NO side carries such a level.
+    """
+    if book.invalid:
+        return None
+    out: dict[str, Any] = {"ticker": book.ticker}
+    priced = False
+    for side in ("yes", "no"):
+        ask = book.ask_for(side)
+        bid = book.best_yes_bid if side == "yes" else book.best_no_bid
+        ask_ok = is_valid_price(ask)
+        bid_ok = is_valid_price(bid)
+        priced = priced or ask_ok
+        out[f"{side}_ask_tenths"] = ask if ask_ok else None
+        out[f"{side}_ask_display"] = format_price(ask) if ask_ok else None
+        out[f"{side}_bid_tenths"] = bid if bid_ok else None
+        out[f"{side}_bid_display"] = format_price(bid) if bid_ok else None
+        out[f"{side}_depth_at_ask"] = book.depth_at_ask(side) if ask_ok else None
+        opposite = "no" if side == "yes" else "yes"
+        out[f"{side}_bid_unpriced"] = (not bid_ok) and book.has_unpriced_interest(side)
+        out[f"{side}_ask_unpriced"] = (not ask_ok) and book.has_unpriced_interest(opposite)
+    if not priced:
+        return None
+    out["observed_ms"] = book.updated_ms
+    return out
+
+
+def _top(frame: dict[str, Any]) -> tuple:
+    """What makes a book frame news: the four prices, not the depth behind them."""
+    return (
+        frame["yes_ask_tenths"], frame["no_ask_tenths"],
+        frame["yes_bid_tenths"], frame["no_bid_tenths"],
+    )
 
 
 @dataclass(frozen=True)
@@ -369,6 +444,16 @@ class QuoteHub:
         self._socket_factory = socket_factory or self._build_socket
 
         self._clients: set[asyncio.Queue] = set()
+        # Browsers watching named tickers, and what each is watching.
+        self._watch_clients: dict[asyncio.Queue, frozenset[str]] = {}
+        # The top of book last sent per watched ticker; only changes go out.
+        self._last_top: dict[str, tuple] = {}
+        # The socket of the current window, so a new watcher can add a ticker
+        # to it rather than waiting for the next rebuild.
+        self._socket = None
+        # Set by a new watcher, so an idle hub opens a socket now rather than
+        # up to `resubscribe_s` later.
+        self._wake = asyncio.Event()
         self._subscriptions: dict[str, list[_Subscription]] = {}
         self._latest: dict[int, Priced] = {}
         self._task: Optional[asyncio.Task] = None
@@ -441,24 +526,50 @@ class QuoteHub:
                 # usually rolled past it by the time anyone looks.
                 self._down_reason = f"{type(exc).__name__}: {exc}"
                 logger.exception("quote hub cycle failed; retrying")
-                await self._broadcast({"type": "down", "reason": self._down_reason})
+                await self._broadcast(
+                    {"type": "down", "reason": self._down_reason}, to_watchers=True
+                )
                 await asyncio.sleep(self._resubscribe_s)
 
     async def _one_cycle(self) -> None:
         """One subscription window: read the rows, hold the feed, come back."""
-        subscriptions = await asyncio.to_thread(self._load_subscriptions)
-        if not subscriptions:
-            # Nothing bettable, so nothing to stream. Not an error -- it is the
-            # state for most of the day -- but it is broadcast so the client can
-            # say "no live rows" rather than "connecting...".
-            await self._broadcast({"type": "idle"})
-            await asyncio.sleep(self._resubscribe_s)
+        await asyncio.to_thread(self._load_subscriptions)
+        watched = self.watched_tickers()
+        tickers = set(self._subscriptions) | watched
+        # Forget the last top of tickers nobody watches any more, so the change
+        # filter cannot grow with every market ever opened.
+        self._last_top = {k: v for k, v in self._last_top.items() if k in watched}
+        if not tickers:
+            # Nothing bettable and nobody watching, so nothing to stream. Not an
+            # error -- it is the state for most of the day -- but it is
+            # broadcast so the client can say "no live rows" rather than
+            # "connecting...".
+            await self._broadcast({"type": "idle"}, to_watchers=True)
+            await self._idle()
             return
 
-        socket = self._socket_factory(sorted(self._subscriptions))
+        socket = self._socket_factory(sorted(tickers))
+        self._socket = socket
         self._down_reason = None
-        await self._broadcast({"type": "up", "tickers": len(self._subscriptions)})
+        await self._broadcast({"type": "up", "tickers": len(tickers)}, to_watchers=True)
         feed = asyncio.create_task(socket.run(), name="quote-hub-socket")
+        try:
+            await self._hold(feed)
+        finally:
+            self._socket = None
+
+    async def _idle(self) -> None:
+        """Wait out an idle window, or less if a watcher arrives."""
+        self._wake.clear()
+        # A watcher that arrived between the ticker read above and the clear
+        # would otherwise wait a whole window.
+        if self.watched_tickers():
+            return
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(self._wake.wait(), timeout=self._resubscribe_s)
+
+    async def _hold(self, feed: asyncio.Task) -> None:
+        """Hold one socket for a window, then let the cycle rebuild it."""
         try:
             await asyncio.wait_for(asyncio.shield(feed), timeout=self._resubscribe_s)
         except asyncio.TimeoutError:
@@ -469,7 +580,9 @@ class QuoteHub:
                 await feed
         except FeedDied as exc:
             self._down_reason = str(exc)
-            await self._broadcast({"type": "down", "reason": str(exc)})
+            await self._broadcast(
+                {"type": "down", "reason": str(exc)}, to_watchers=True
+            )
             await asyncio.sleep(self._resubscribe_s)
         except asyncio.CancelledError:
             feed.cancel()
@@ -530,7 +643,8 @@ class QuoteHub:
     # -- the feed ----------------------------------------------------------
 
     async def _on_book(self, book: OrderBook) -> None:
-        """One book moved. Re-price every recorded side of that market."""
+        """One book moved. Tell its watchers, and re-price every recorded side."""
+        self._send_book(book)
         subs = self._subscriptions.get(book.ticker)
         if not subs:
             return
@@ -570,10 +684,140 @@ class QuoteHub:
     def _on_feed_down(self, reason: str) -> None:
         self._down_reason = reason
 
+    # -- watched tickers ---------------------------------------------------
+
+    def watched_tickers(self) -> set[str]:
+        out: set[str] = set()
+        for tickers in self._watch_clients.values():
+            out |= tickers
+        return out
+
+    def check_watch(self, tickers: Iterable[str]) -> frozenset[str]:
+        """Validate a watch request before any stream opens. Raises `WatchRefused`."""
+        wanted = frozenset(t.strip() for t in tickers if t and t.strip())
+        if not wanted:
+            raise WatchRefused(422, "Name at least one ticker to watch.")
+        if len(wanted) > MAX_WATCHED_PER_CLIENT:
+            raise WatchRefused(
+                422,
+                f"{len(wanted)} tickers named; one page may watch at most "
+                f"{MAX_WATCHED_PER_CLIENT}.",
+            )
+        bad = sorted(t for t in wanted if not TICKER_RE.match(t))
+        if bad:
+            raise WatchRefused(422, f"Not a Kalshi market ticker: {bad[0]!r}.")
+        if len(self.watched_tickers() | wanted) > MAX_WATCHED_TOTAL:
+            raise WatchRefused(
+                429,
+                f"The live feed is already watching {len(self.watched_tickers())} "
+                f"markets, and its limit is {MAX_WATCHED_TOTAL}. Close another "
+                "page and reload.",
+            )
+        return wanted
+
+    def _book_of(self, ticker: str) -> Optional[OrderBook]:
+        books = getattr(self._socket, "books", None) or {}
+        return books.get(ticker)
+
+    def _valid(self, tickers: Iterable[str]) -> list[str]:
+        """The watched tickers whose book can be priced from right now.
+
+        Sent on every heartbeat. A book whose top has not moved sends no frame,
+        so without this the screen could not tell "unchanged and current" from
+        "last heard of minutes ago".
+        """
+        out = []
+        for ticker in sorted(tickers):
+            book = self._book_of(ticker)
+            if book is not None and book_frame(book) is not None:
+                out.append(ticker)
+        return out
+
+    def _send_book(self, book: OrderBook) -> None:
+        watchers = [q for q, ts in self._watch_clients.items() if book.ticker in ts]
+        if not watchers:
+            return
+        frame = book_frame(book)
+        if frame is None:
+            return
+        top = _top(frame)
+        if self._last_top.get(book.ticker) == top:
+            return
+        self._last_top[book.ticker] = top
+        event = {"type": "book", **frame, "at_ms": db.now_ms()}
+        for queue in watchers:
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                self._watch_clients.pop(queue, None)
+                logger.info("dropped a book watcher that fell behind")
+
+    async def watch(self, tickers: frozenset[str]):
+        """An async iterator of book events for one browser's tickers.
+
+        `tickers` must come from `check_watch`. Opens with the current top of
+        every watched book that can be priced, then sends `book` frames when a
+        top changes, and a heartbeat listing which books are valid.
+        """
+        queue: asyncio.Queue = asyncio.Queue(maxsize=CLIENT_QUEUE_SIZE)
+        new = tickers - self.watched_tickers()
+        self._watch_clients[queue] = tickers
+        try:
+            if new:
+                self._wake.set()
+                add = getattr(self._socket, "add_tickers", None)
+                if add is not None:
+                    try:
+                        await add(sorted(new))
+                    except Exception:                           # noqa: BLE001
+                        # The connection is going down; the next one
+                        # subscribes every watched ticker anyway.
+                        logger.warning("could not add tickers to the live socket",
+                                       exc_info=True)
+            books = []
+            for ticker in sorted(tickers):
+                book = self._book_of(ticker)
+                frame = book_frame(book) if book is not None else None
+                if frame is not None:
+                    books.append(frame)
+            yield {
+                "type": "books_snapshot",
+                "books": books,
+                "valid": self._valid(tickers),
+                "down": self._down_reason,
+                "at_ms": db.now_ms(),
+            }
+            while True:
+                if queue not in self._watch_clients:
+                    return
+                try:
+                    event = await asyncio.wait_for(
+                        queue.get(), timeout=self._heartbeat_s
+                    )
+                except asyncio.TimeoutError:
+                    event = {
+                        "type": "heartbeat",
+                        "at_ms": db.now_ms(),
+                        "down": self._down_reason,
+                        "valid": self._valid(tickers),
+                    }
+                yield event
+        finally:
+            self._watch_clients.pop(queue, None)
+
     # -- fan-out -----------------------------------------------------------
 
-    async def _broadcast(self, event: dict[str, Any]) -> None:
+    async def _broadcast(
+        self, event: dict[str, Any], *, to_watchers: bool = False
+    ) -> None:
         stamped = {**event, "at_ms": db.now_ms()}
+        if to_watchers:
+            # Status only (up, down, idle); a watcher never receives `quotes`.
+            for queue in list(self._watch_clients):
+                try:
+                    queue.put_nowait(stamped)
+                except asyncio.QueueFull:
+                    self._watch_clients.pop(queue, None)
         for queue in list(self._clients):
             try:
                 queue.put_nowait(stamped)

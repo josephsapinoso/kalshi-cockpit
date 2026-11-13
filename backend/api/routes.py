@@ -78,7 +78,7 @@ from ..kalshi.quotes import LiveQuote, LiveQuoteSource, QuoteUnavailable
 # reimplemented: one parser for `balance_breakdown`, one place to be
 # wrong about the venue's field names.
 from ..store.combo_orders import read_shard_funds
-from ..live import QuoteHub, sse
+from ..live import QuoteHub, WatchRefused, sse
 from ..logging_setup import configure_logging
 from ..agents.base import AgentConfig
 from ..notify.alerts import Alerter
@@ -853,6 +853,52 @@ def create_app(
                 # nginx and several Fly-adjacent proxies buffer by default,
                 # which turns a ticker into a page that updates in bursts every
                 # few kilobytes -- indistinguishable from a laggy feed.
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
+    @app.get("/api/stream/books")
+    async def stream_books(ticker: list[str] = Query(default_factory=list)):
+        """Live top of book for the tickers on one screen. **A display, not a control.**
+
+        `/api/stream/quotes` carries engine rows sized above zero, and on live
+        every such row sizes to zero, so it is idle there. The hand-bet ticket
+        and the held legs on `/bets` name their own markets here instead and
+        receive each one's bid, ask and depth as Kalshi's book moves.
+
+        **No money figure crosses this wire.** No edge, no size, no fee: the
+        ticket's max price, fee and break-even stay the preflight the server
+        computed, and a moved ask is shown beside them (Joe, 2026-11-13).
+        Nothing here writes, and no order path reads it; `POST
+        /api/manual-orders` re-reads the book itself, as it always has.
+
+        Authenticated by the middleware cookie gate, like every `/api/*` read
+        (see `stream_quotes`). 503 without a feed; 422 for a malformed or
+        oversized request; 429 when the shared socket is at its limit.
+        """
+        if hub is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "This instance holds no Kalshi credentials, so there is no "
+                    "live feed. Prices shown are the ones read when the page loaded."
+                ),
+            )
+        try:
+            wanted = hub.check_watch(ticker)
+        except WatchRefused as refused:
+            raise HTTPException(status_code=refused.status, detail=refused.detail)
+
+        async def frames():
+            async for event in hub.watch(wanted):
+                yield sse(event)
+
+        return StreamingResponse(
+            frames(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
                 "X-Accel-Buffering": "no",
                 "Connection": "keep-alive",
             },

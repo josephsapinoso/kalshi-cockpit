@@ -183,6 +183,15 @@ class KalshiWebSocket:
         # Sequence is per-connection, so it is tracked here rather than per book.
         self._last_seq: Optional[int] = None
         self._pending_resync = False
+        # Whether the opening subscribe loop of the current connection has
+        # finished. `add_tickers` sends its own subscribe only after it has:
+        # before that, the loop iterates `self.tickers` and reaches an appended
+        # ticker on its own, and sending a second subscribe for the same market
+        # would be a command this client has never observed Kalshi answer.
+        self._initial_subscribed = False
+        # Two coroutines can now send on one socket: the consume loop (resync)
+        # and `add_tickers`, which a browser opening a market page drives.
+        self._send_lock = asyncio.Lock()
 
     # -- state -------------------------------------------------------------
 
@@ -195,6 +204,30 @@ class KalshiWebSocket:
         return {
             t: b for t, b in self.books.items() if b.is_quotable(now, max_age_ms)
         }
+
+    async def add_tickers(self, tickers: Iterable[str]) -> list[str]:
+        """Watch more markets on this socket without reconnecting.
+
+        Used by `QuoteHub` when a browser opens a ticker nobody was watching.
+        The ticker joins `self.tickers`, so every later connection -- a drop, a
+        resync -- subscribes it like any other; recovery is unchanged (ADR 0119).
+
+        On an open connection the subscribe sent here is the same command the
+        opening loop already sends for its second and later tickers, one per
+        market, so this relies on no venue behaviour the client has not seen.
+
+        Returns the tickers that were new. A send failure is not caught: the
+        connection is dying, the consume loop will reconnect, and the new
+        ticker is in `self.tickers` by then.
+        """
+        new = [t for t in dict.fromkeys(tickers) if t not in self.books]
+        for ticker in new:
+            self.tickers.append(ticker)
+            self.books[ticker] = OrderBook(ticker)
+        if self._ws is not None and self._initial_subscribed:
+            for ticker in new:
+                await self._subscribe(ticker)
+        return new
 
     # -- connection --------------------------------------------------------
 
@@ -229,6 +262,14 @@ class KalshiWebSocket:
                     self.on_feed_down(message)
                 raise FeedDied(message) from exc
             except (ConnectionClosed, OSError, asyncio.TimeoutError) as exc:
+                # Every book stops being current the moment the connection
+                # does. Left valid, they would keep their last prices through
+                # the receive timeout and the backoff, and anything asking
+                # "can this book be priced from?" -- the live book stream's
+                # heartbeat does -- would answer yes for minutes about a feed
+                # that is gone. The next connection re-snapshots them.
+                for book in self.books.values():
+                    book.invalid = True
                 attempt += 1
                 if attempt > self.max_reconnect_attempts:
                     message = (
@@ -262,56 +303,67 @@ class KalshiWebSocket:
         headers = self.auth.get_ws_headers()
         logger.info("connecting to %s (%d tickers)", self.config.ws_url, len(self.tickers))
 
-        async with websockets.connect(
-            self.config.ws_url, additional_headers=headers
-        ) as ws:
-            self._ws = ws
-            self._sids.clear()
-            self._ticker_sids.clear()
-            self._pending_subscriptions.clear()
-            self._last_message_ms = _now_ms()
-            # Every book predates this connection and has not been confirmed by
-            # a fresh snapshot. Leaving them valid lets a book quoted a second
-            # before the drop stay priceable through a 16s backoff, on data
-            # that never saw the outage.
-            for book in self.books.values():
-                book.invalid = True
-            # A new connection restarts the sequence at 1. Carrying the old
-            # value across would report a gap on the first frame of every
-            # reconnect and resync a book that is already correct.
-            self._last_seq = None
-            self._pending_resync = False
-
-            for ticker in self.tickers:
-                await self._subscribe(ticker)
-
-            while True:
-                # Application-level timeout. The 16-minute silent stall that
-                # motivated this had a perfectly healthy ping/pong throughout.
-                try:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=self.receive_timeout_s)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "no message in %.0fs -- forcing reconnect. TCP liveness "
-                        "does not imply data flow.",
-                        self.receive_timeout_s,
-                    )
-                    raise
-
+        try:
+            async with websockets.connect(
+                self.config.ws_url, additional_headers=headers
+            ) as ws:
+                self._ws = ws
+                self._sids.clear()
+                self._ticker_sids.clear()
+                self._pending_subscriptions.clear()
                 self._last_message_ms = _now_ms()
-                await self._handle(raw)
+                # Every book predates this connection and has not been confirmed by
+                # a fresh snapshot. Leaving them valid lets a book quoted a second
+                # before the drop stay priceable through a 16s backoff, on data
+                # that never saw the outage.
+                for book in self.books.values():
+                    book.invalid = True
+                # A new connection restarts the sequence at 1. Carrying the old
+                # value across would report a gap on the first frame of every
+                # reconnect and resync a book that is already correct.
+                self._last_seq = None
+                self._pending_resync = False
 
-                # Resync outside _handle so the resubscribe commands are not
-                # issued from inside frame dispatch.
-                if self._pending_resync:
-                    await self._resync_all()
+                self._initial_subscribed = False
+                # Iterates the live list, so a ticker `add_tickers` appends while
+                # this loop awaits is subscribed here, exactly once.
+                for ticker in self.tickers:
+                    await self._subscribe(ticker)
+                self._initial_subscribed = True
+
+                while True:
+                    # Application-level timeout. The 16-minute silent stall that
+                    # motivated this had a perfectly healthy ping/pong throughout.
+                    try:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=self.receive_timeout_s)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "no message in %.0fs -- forcing reconnect. TCP liveness "
+                            "does not imply data flow.",
+                            self.receive_timeout_s,
+                        )
+                        raise
+
+                    self._last_message_ms = _now_ms()
+                    await self._handle(raw)
+
+                    # Resync outside _handle so the resubscribe commands are not
+                    # issued from inside frame dispatch.
+                    if self._pending_resync:
+                        await self._resync_all()
+        finally:
+            # A closed connection must not be sent on: `add_tickers` checks
+            # both of these, and the next connection re-subscribes everything.
+            self._ws = None
+            self._initial_subscribed = False
 
     # -- protocol ----------------------------------------------------------
 
     async def _send(self, payload: dict) -> None:
         self._command_id += 1
         payload["id"] = self._command_id
-        await self._ws.send(json.dumps(payload))
+        async with self._send_lock:
+            await self._ws.send(json.dumps(payload))
 
     async def _subscribe(self, ticker: str) -> None:
         # Record the command id before sending: the ack names only the id, so

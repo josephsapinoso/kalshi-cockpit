@@ -204,6 +204,13 @@ export const GLOSSARY = {
       "price. There is also a “mid” (an average of buy and sell), " +
       "but nobody gets to pay the mid, so every judgement here uses the ask.",
   },
+  bid: {
+    label: "bid",
+    definition:
+      "The best price someone on Kalshi is offering to pay for this side " +
+      "right now: what you would get if you sold here. The gap between the " +
+      "bid and the ask is what buying and selling straight back would cost.",
+  },
   breakeven: {
     label: "break-even",
     definition:

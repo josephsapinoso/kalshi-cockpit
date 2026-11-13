@@ -32,6 +32,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -623,3 +624,84 @@ class TestADataFrameWithNoSeqIsNotExempt:
         assert ws._check_sequence({"type": "some_future_ack", "msg": {}}) is True
         assert ws._pending_resync is False
         assert not any(book.invalid for book in ws.books.values())
+
+
+class _RecordingConn:
+    """A connection that records what is sent and drops on the first read."""
+
+    def __init__(self):
+        self.sent: list[dict] = []
+
+    async def send(self, raw):
+        self.sent.append(json.loads(raw))
+
+    async def recv(self):
+        raise OSError("dropped")
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _subscribed_tickers(sent):
+    return [m["params"]["market_tickers"][0] for m in sent if m.get("cmd") == "subscribe"]
+
+
+class TestAddTickers:
+    """A browser opening a market adds its ticker to the shared socket.
+
+    Recovery is unchanged (ADR 0119): an added ticker joins `self.tickers`,
+    so the next connection subscribes it with every other one.
+    """
+
+    async def test_on_an_open_connection_only_the_new_ticker_is_subscribed(self, ws):
+        conn = _RecordingConn()
+        ws._ws = conn
+        ws._initial_subscribed = True
+        new = await ws.add_tickers(["KXMLBGAME-A", "KXMLBGAME-D"])
+        assert new == ["KXMLBGAME-D"]
+        assert _subscribed_tickers(conn.sent) == ["KXMLBGAME-D"]
+        assert ws._pending_subscriptions[conn.sent[0]["id"]] == "KXMLBGAME-D"
+        assert "KXMLBGAME-D" in ws.books
+
+    async def test_before_the_opening_loop_finishes_nothing_extra_is_sent(self, ws):
+        # The opening loop iterates `self.tickers` and reaches the appended
+        # ticker itself; a second subscribe for one market is a command this
+        # client has never observed Kalshi answer.
+        conn = _RecordingConn()
+        ws._ws = conn
+        ws._initial_subscribed = False
+        await ws.add_tickers(["KXMLBGAME-D"])
+        assert conn.sent == []
+        assert "KXMLBGAME-D" in ws.tickers
+
+    async def test_with_no_connection_the_ticker_waits_for_the_next_one(self, ws):
+        assert ws._ws is None
+        await ws.add_tickers(["KXMLBGAME-D"])
+        assert ws.tickers[-1] == "KXMLBGAME-D"
+
+    async def test_the_next_connection_subscribes_an_added_ticker(self, ws, monkeypatch):
+        conn = _RecordingConn()
+        ws.auth = SimpleNamespace(get_ws_headers=lambda: {})
+        monkeypatch.setattr(
+            "backend.kalshi.ws.websockets.connect", lambda *a, **kw: conn
+        )
+        await ws.add_tickers(["KXMLBGAME-D"])
+        with pytest.raises(OSError):
+            await ws._connect_and_consume()
+        assert _subscribed_tickers(conn.sent) == TICKERS + ["KXMLBGAME-D"]
+
+    async def test_a_dropped_connection_is_not_sent_on_again(self, ws, monkeypatch):
+        conn = _RecordingConn()
+        ws.auth = SimpleNamespace(get_ws_headers=lambda: {})
+        monkeypatch.setattr(
+            "backend.kalshi.ws.websockets.connect", lambda *a, **kw: conn
+        )
+        with pytest.raises(OSError):
+            await ws._connect_and_consume()
+        sent_before = len(conn.sent)
+        assert ws._ws is None and ws._initial_subscribed is False
+        await ws.add_tickers(["KXMLBGAME-D"])
+        assert len(conn.sent) == sent_before
