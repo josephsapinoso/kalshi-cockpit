@@ -161,7 +161,7 @@ the channel diagnostic (A17.6/A17.11).
 
 ### Still open (adds to the list below; #436, #401 and #360 are closed, #442 done)
 
-1. #439 — the link design on the captured fixtures. Main tour only; Challenger refused by name.
+1. #439 — design posted and reviewed by kalshi-platform (MERGE WITH FIXES, all applied). The main fix: tennis readings get their own tables and never go into `odds_snapshots`, because the `odds_fixtures` trigger would make the sweep planner buy tennis all tournament. Three more captures were taken (`79b4e7ec`, 1 credit). Build order: #444 (pure steps, lane) → #445 (tables, sub-cap, runner; main) → #446 (wire the check, lane).
 2. #438 — Joe: read the Fly invoices, then run the home rehearsal on the desktop.
 
 ## 2026-11-13 (hundred-and-eleventh session) — Kalshi's tennis payloads captured (#441); #439's "no caller" fact corrected; Joe answered #442 (A): live reads go to a laptop session
