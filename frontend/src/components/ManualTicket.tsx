@@ -982,6 +982,10 @@ function LiveAskLine({
         price here as frozen.
       </>
     );
+  } else if (!book) {
+    // No frame yet for this ticker: the desk has no data, so it says that and
+    // claims nothing about the venue (unreadable is None, never "no ask").
+    line = <>No live book for this market yet.</>;
   } else if (ask === null) {
     const unpriced = side === "yes" ? book?.yes_ask_unpriced : book?.no_ask_unpriced;
     line = unpriced ? (
@@ -991,7 +995,8 @@ function LiveAskLine({
       </>
     ) : (
       <>
-        No live <Term k="ask">ask</Term> on {side.toUpperCase()} right now.
+        No {side.toUpperCase()} <Term k="ask">ask</Term> on Kalshi&rsquo;s
+        book{age !== null && <> ({formatAge(age)})</>}.
       </>
     );
   } else {
@@ -1008,7 +1013,8 @@ function LiveAskLine({
       <p className="text-muted">{line}</p>
       {live.status === "live" && moved !== null && pinned.ask_display !== null && ask && (
         <p className="text-accent-2">
-          The ask is now {ask.display}; this ticket was priced at{" "}
+          Kalshi&rsquo;s ask moved to {ask.display}
+          {age !== null && <> ({formatAge(age)})</>}; this ticket was priced at{" "}
           {pinned.ask_display}. Re-read the book to re-price it.
         </p>
       )}

@@ -609,8 +609,9 @@ function Leg({ leg, maxQuoteAgeMs }: { leg: HeldLeg; maxQuoteAgeMs: number }) {
 const LiveLegs = createContext<LiveBooks | null>(null);
 
 /**
- * The leg's price on Kalshi's book now: the bid for the side held (what
- * someone would pay for it) and the ask (what buying more would cost).
+ * The leg's own Kalshi market now, for the side held: its bid and ask. Joe
+ * holds the parlay, not the leg, so these are not prices for his position
+ * (a combination's exit is its own book plus an RFQ; CLAUDE.md).
  *
  * Beside the recorded chance, never in place of it: the chance and the hedge
  * figures are the server's, read when the page loaded. Renders nothing with
@@ -641,7 +642,8 @@ function LiveLegLine({ leg }: { leg: HeldLeg }) {
   const age = bookAgeMs(live.state, leg.ticker, live.now);
   return (
     <span className="w-full text-[11px] text-muted" aria-live="polite">
-      Kalshi now, {leg.side.toUpperCase()}: <Term k="bid">bid</Term>{" "}
+      This leg&rsquo;s Kalshi market, {leg.side.toUpperCase()}:{" "}
+      <Term k="bid">bid</Term>{" "}
       <span className="tabular">{bid ?? "none"}</span> &middot;{" "}
       <Term k="ask">ask</Term> <span className="tabular">{ask ?? "none"}</span>
       {age !== null && <> &middot; {formatAge(age)}</>}
@@ -665,8 +667,9 @@ function RepriceLine({ position }: { position: HeldPosition }) {
   return (
     <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
       <span>
-        The hedge figures above were priced when this page loaded; the leg
-        prices are live.
+        The hedge figures and each leg&rsquo;s chance above were read when
+        this page loaded; only the &ldquo;Kalshi market&rdquo; lines under the
+        legs are live.
       </span>
       <button
         type="button"

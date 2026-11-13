@@ -150,7 +150,7 @@ the channel diagnostic (A17.6/A17.11).
   - `time_live_routes.py` takes `TIMING_BASE_URL`.
 - **`5b10337`: live prices on the hand-bet ticket and held legs.**
   - The old `/api/stream/quotes` carries only engine rows sized above zero, so it is idle on live.
-  - New `GET /api/stream/books?ticker=...`: `QuoteHub.watch` adds named markets to the one socket (`KalshiWebSocket.add_tickers`). Caps are 40 per page and 200 total. A frame carries bid, ask and depth, with no edge, size or fee.
+  - New `GET /api/stream/books?ticker=...`: `QuoteHub.watch` adds named markets to the one socket (`KalshiWebSocket.add_tickers`). Caps are 40 per page and 200 total. A frame carries bid, ask and depth at the ask (no bid depth), with no edge, size or fee.
   - The ticket shows the live ask beside the preflight. A moved ask points at Re-read and never re-pins (Joe's answer, 2026-11-13); `canConfirm` is untouched. Each held leg on `/bets` shows bid and ask for the side held, with a Re-price prompt.
   - kalshi-platform review: no path to an order. Its two display findings are fixed with tests: books are invalidated on a dropped connection, and sub-tenth levels are flagged rather than shown as none.
 - **Verified.**

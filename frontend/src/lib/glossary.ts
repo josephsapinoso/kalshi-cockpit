@@ -207,9 +207,11 @@ export const GLOSSARY = {
   bid: {
     label: "bid",
     definition:
-      "The best price someone on Kalshi is offering to pay for this side " +
-      "right now: what you would get if you sold here. The gap between the " +
-      "bid and the ask is what buying and selling straight back would cost.",
+      "The best price someone will pay for this side on Kalshi's book. " +
+      "Only the contracts resting at that price get it. Buying then " +
+      "selling back costs the gap plus a fee each trade. On a parlay " +
+      "leg this is not your parlay: its exit is its own book and a maker " +
+      "quote, so check both.",
   },
   breakeven: {
     label: "break-even",
